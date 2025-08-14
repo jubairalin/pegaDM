@@ -1,0 +1,290 @@
+
+Filename:clone_pipeline.ps1
+
+Run it from local PowerShell
+
+
+
+cd scripts
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\clone_pipeline.ps1
+
+
+
+------------
+pega_dm_collection.json
+FileName:
+
+How to Use in Postman
+Copy the JSON above into a file called pega_dm_collection.json.
+
+Open Postman → Import → File → select the JSON file.
+
+Replace placeholders:
+
+<PEGA_BASE_URL> → e.g., pega.example.com
+
+<CLIENT_ID> / <CLIENT_SECRET> / <USERNAME> / <PASSWORD>
+
+Run Get OAuth Token request first.
+
+Copy the access_token from the response and set the Postman variable access_token.
+
+Run List Pipelines request to get all pipelines.
+
+---------------
+
+Filename: windowspipeline.yml
+
+Tips for Easy Use
+Store client secrets and passwords as secure variables in Azure DevOps.
+
+Use jq in Linux agents or PowerShell objects in Windows agents to parse JSON.
+
+You can extend Step 2 to clone or create pipelines by calling POST /pipelines with JSON.
+
+-----------------
+
+
+Filename:  pipeline2.yml
+
+
+Step-by-Step Explanation
+Variables
+
+Store secrets in Azure DevOps Library → Variable Groups:
+
+PEGA_CLIENT_ID, PEGA_CLIENT_SECRET, PEGA_USERNAME, PEGA_PASSWORD
+
+Access them in YAML using $(VARIABLE_NAME)
+
+Get OAuth Token
+
+Call /oauth2/v1/token via curl
+
+Extract token with jq
+
+Set it as an Azure pipeline variable:
+
+bash
+
+echo "##vso[task.setvariable variable=ACCESS_TOKEN]$ACCESS_TOKEN"
+
+
+List Pipelines
+
+Use curl again with the token from previous step
+
+--------------
+
+
+Use HTTPS instead of HTTP
+
+Store credentials in a more secure way (environment variables, etc.)
+
+Use token-based authentication if available
+
+Example with HTTPS:
+curl -X GET \
+  "https://pdm.example.com:8443/prweb/api/v1/pipelines" \
+  -H "Authorization: Basic $(echo -n "admin:password123" | base64)" \
+  -H "Content-Type: application/json" \
+  -k  # Skip SSL verification (only for testing)
+  
+  
+Note: The -k flag is only for testing environments with self-signed certificates. For production, you should properly configure SSL certificates.
+------------------------------
+
+
+Here’s the curl command to list pipelines in Pega Deployment Manager using its REST API.
+You’ll need to replace the base URL, access token, and possibly the API version based on your environment.
+
+
+curl -X GET \
+  "https://<your-pega-url>/prweb/api/v1/pipelines" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer <your_access_token>"
+
+
+ etails:
+
+https://<your-pega-url> → Replace with your Pega Deployment Manager instance URL (e.g., https://pega.example.com).
+
+Authorization: Bearer <your_access_token> → Replace <your_access_token> with the JWT or OAuth2 token obtained from your authentication step.
+
+The endpoint /prweb/api/v1/pipelines lists all available pipelines.
+
+------------------
+
+Step 1: Gather Required Information
+Before running the command, ensure you have:
+
+PDM Base URL (e.g., https://pdm.example.com:8443)
+
+Username & Password (e.g., admin/password123)
+
+(Optional) API Token (if using token-based auth instead of basic auth)
+
+Step 2: Encode Credentials (Basic Auth)
+Pega Deployment Manager typically uses Basic Authentication.
+Encode your username and password in Base64:
+
+On Linux/macOS:
+bash
+echo -n "username:password" | base64
+
+
+Example:
+
+bash
+echo -n "admin:password123" | base64
+# Output: YWRtaW46cGFzc3dvcmQxMjM=
+
+
+
+On Windows (PowerShell):
+powershell
+[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("username:password"))
+
+
+Example:
+
+powershell
+[Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("admin:password123"))
+# Output: YWRtaW46cGFzc3dvcmQxMjM=
+
+
+
+Step 3: Run the curl Command
+Use the encoded credentials to fetch pipelines:
+
+Basic Auth (Username/Password)
+bash
+curl -X GET \
+  "https://pdm.example.com:8443/prweb/api/v1/pipelines" \
+  -H "Authorization: Basic YWRtaW46cGFzc3dvcmQxMjM=" \
+  -H "Content-Type: application/json" \
+  -k
+  
+  
+  
+(Replace YWRtaW46cGFzc3dvcmQxMjM= with your encoded credentials)
+
+Token-Based Auth (If Configured)
+
+
+curl -X GET \
+  "https://pdm.example.com:8443/prweb/api/v1/pipelines" \
+  -H "Authorization: Bearer YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -k
+  
+  
+Example successful response:
+
+json
+{
+  "pipelines": [
+    {
+      "pipelineId": "1",
+      "name": "Dev-to-Test",
+      "status": "ACTIVE"
+    },
+    {
+      "pipelineId": "2",
+      "name": "Test-to-Prod",
+      "status": "INACTIVE"
+    }
+  ]
+}
+
+
+Final Optimized Command (For Scripting)
+
+PDM_URL="https://pdm.example.com:8443"
+USERNAME="admin"
+PASSWORD="password123"
+AUTH_TOKEN=$(echo -n "$USERNAME:$PASSWORD" | base64)
+
+curl -s -X GET \
+  "$PDM_URL/prweb/api/v1/pipelines" \
+  -H "Authorization: Basic $AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -k | jq .  # (optional) pretty-print JSON using 'jq'
+  
+-----------------
+
+Step 1: Open PowerShell
+Launch PowerShell (as Admin if needed).
+
+
+
+Step 2: Set Variables
+Define the PDM URL, username, and password:
+
+powershell
+$PDM_URL = "https://pdm.example.com:8443"
+$USERNAME = "admin"
+$PASSWORD = "password123"
+
+Step 3: Encode Credentials (Base64)
+PowerShell handles Base64 encoding differently than Linux/macOS:
+
+$AUTH_TOKEN = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${USERNAME}:${PASSWORD}"))
+
+
+Step 4: Run the curl Command
+Use Invoke-RestMethod (PowerShell’s native alternative to curl) for better JSON handling:
+
+
+$Response = Invoke-RestMethod -Uri "$PDM_URL/prweb/api/v1/pipelines" `
+    -Headers @{
+        "Authorization" = "Basic $AUTH_TOKEN"
+        "Content-Type" = "application/json"
+    } `
+    -SkipCertificateCheck  # Equivalent to `-k` in curl
+	
+	
+	
+	
+Step 5: Display Pipelines
+Print the response in a readable format:
+
+
+$Response.pipelines | Format-Table -AutoSize
+
+Final Optimized Script (PowerShell)
+
+# Step 1: Set variables
+$PDM_URL = "https://pdm.example.com:8443"
+$USERNAME = "admin"
+$PASSWORD = "password123"
+
+# Step 2: Encode credentials
+$AUTH_TOKEN = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${USERNAME}:${PASSWORD}"))
+
+# Step 3: Fetch pipelines
+try {
+    $Response = Invoke-RestMethod -Uri "$PDM_URL/prweb/api/v1/pipelines" `
+        -Headers @{
+            "Authorization" = "Basic $AUTH_TOKEN"
+            "Content-Type" = "application/json"
+        } `
+        -SkipCertificateCheck  # Bypass SSL errors (remove in production)
+
+    # Step 4: Display results
+    $Response.pipelines | Format-Table -AutoSize
+} catch {
+    Write-Error "Failed to fetch pipelines: $_"
+}
+
+
+
+This should work seamlessly in PowerShell 5.1+ or PowerShell 7 (Core). 🚀
+
+
+---------------
+
+
+
+	

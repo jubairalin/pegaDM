@@ -1,0 +1,127 @@
+List of curl commands 
+
+
+
+
+
+
+curl -X GET \
+  "<PEGA_BASE_URL>/prweb/api/v1/pipelines" \
+  -u "<USERNAME>:<PASSWORD>" \
+  -H "Accept: application/json"
+  
+  
+  
+curl -X GET \
+  "https://pega.example.com/prweb/api/v1/pipelines" \
+  -u "admin@dm:rules" \
+  -H "Accept: application/json"
+  
+  
+curl -X POST \
+  "<PEGA_BASE_URL>/PRRestService/oauth2/v1/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=<CLIENT_ID>" \
+  -d "client_secret=<CLIENT_SECRET>" \
+  -d "username=<USERNAME>" \
+  -d "password=<PASSWORD>"
+
+Example:
+curl -X POST \
+  "https://pega.example.com/prweb/PRRestService/oauth2/v1/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=dm-client" \
+  -d "client_secret=dm-secret" \
+  -d "username=admin@dm" \
+  -d "password=rules"
+
+Response:
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR...",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "api"
+}
+
+Copy the "access_token" value 
+
+curl -X GET \
+  "<PEGA_BASE_URL>/prweb/api/v1/pipelines" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>"
+
+
+curl -X GET \
+  "https://pega.example.com/prweb/api/v1/pipelines" \
+  -H "Accept: application/json" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR..."
+
+Step-3
+
+The endpoint is:
+
+bash
+
+POST /prweb/api/v1/pipelines
+
+You must send a JSON payload describing the pipeline.
+Usually, you’ll:
+
+First get a template JSON by calling GET /pipelines/{id} on an existing pipeline.
+
+Modify it (name, stages, environments, product details, etc.).
+
+Post it to create the new pipeline.
+
+
+
+
+Example JSON Payload
+Here’s a minimal structure (you’ll need to adjust values to match your environments and product rulesets in Pega):
+
+
+{
+  "name": "My New Pipeline",
+  "application": "MyApp",
+  "applicationVersion": "01.01.01",
+  "branch": "main",
+  "stages": [
+    {
+      "name": "Dev",
+      "tasks": [
+        {
+          "taskName": "Deploy to Dev",
+          "taskType": "DEPLOY"
+        }
+      ]
+    },
+    {
+      "name": "QA",
+      "tasks": [
+        {
+          "taskName": "Deploy to QA",
+          "taskType": "DEPLOY"
+        }
+      ]
+    }
+  ]
+}
+
+
+
+
+curl -X POST \
+  "<PEGA_BASE_URL>/prweb/api/v1/pipelines" \
+  -H "Accept: application/json" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ACCESS_TOKEN>" \
+  -d @pipeline.json
+
+
+------------------
+
+
+
+

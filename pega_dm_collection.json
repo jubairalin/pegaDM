@@ -1,0 +1,68 @@
+{
+  "info": {
+    "name": "Pega Deployment Manager API",
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-1234567890ef",
+    "description": "Collection to test Pega DM APIs: Get OAuth token and List Pipelines",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get OAuth Token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "grant_type", "value": "password" },
+            { "key": "client_id", "value": "<CLIENT_ID>" },
+            { "key": "client_secret", "value": "<CLIENT_SECRET>" },
+            { "key": "username", "value": "<USERNAME>" },
+            { "key": "password", "value": "<PASSWORD>" }
+          ]
+        },
+        "url": {
+          "raw": "https://<PEGA_BASE_URL>/PRRestService/oauth2/v1/token",
+          "protocol": "https",
+          "host": ["<PEGA_BASE_URL>"],
+          "path": ["PRRestService","oauth2","v1","token"]
+        }
+      }
+    },
+    {
+      "name": "List Pipelines",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "url": {
+          "raw": "https://<PEGA_BASE_URL>/prweb/api/v1/pipelines",
+          "protocol": "https",
+          "host": ["<PEGA_BASE_URL>"],
+          "path": ["prweb","api","v1","pipelines"]
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "access_token", "value": "" }
+  ]
+}
+
+
+
+
+

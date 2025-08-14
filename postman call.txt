@@ -1,0 +1,18 @@
+Steps to call:
+
+How to Use in Postman
+Copy the JSON above into a file called pega_dm_collection.json.
+
+Open Postman → Import → File → select the JSON file.
+
+Replace placeholders:
+
+<PEGA_BASE_URL> → e.g., pega.example.com
+
+<CLIENT_ID> / <CLIENT_SECRET> / <USERNAME> / <PASSWORD>
+
+Run Get OAuth Token request first.
+
+Copy the access_token from the response and set the Postman variable access_token.
+
+Run List Pipelines request to get all pipelines.

@@ -1,0 +1,32 @@
+trigger:
+- main
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  PEGA_BASE_URL: 'https://pega.example.com/prweb'
+  CLIENT_ID: '$(PEGA_CLIENT_ID)'
+  CLIENT_SECRET: '$(PEGA_CLIENT_SECRET)'
+  USERNAME: '$(PEGA_USERNAME)'
+  PASSWORD: '$(PEGA_PASSWORD)'
+  SOURCE_PIPELINE_ID: '1234'
+
+steps:
+- powershell: |
+    Write-Host "Getting OAuth token..."
+    $tokenResponse = Invoke-RestMethod -Method Post -Uri "$env:PEGA_BASE_URL/PRRestService/oauth2/v1/token" `
+        -Body @{
+            grant_type    = "password"
+            client_id     = "$env:CLIENT_ID"
+            client_secret = "$env:CLIENT_SECRET"
+            username      = "$env:USERNAME"
+            password      = "$env:PASSWORD"
+        } -ContentType "application/x-www-form-urlencoded"
+    $env:ACCESS_TOKEN = $tokenResponse.access_token
+    Write-Host "Token acquired"
+
+    Write-Host "Listing pipelines..."
+    Invoke-RestMethod -Method Get -Uri "$env:PEGA_BASE_URL/prweb/api/v1/pipelines" `
+        -Headers @{ "Accept" = "application/json"; "Authorization" = "Bearer $env:ACCESS_TOKEN" }
+  displayName: 'Get OAuth Token & List Pipelines'
