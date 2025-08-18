@@ -1,0 +1,99 @@
+trigger:
+  branches:
+    include:
+    - main
+  paths:
+    include:
+    - AirShipmt/*
+    - CITC/*
+    - CommonRef/*
+    - Control/*
+    - CSACmnRef/*
+    - DocArchive/*
+    - ExmRes/*
+    - FreeZone/*
+    - General/*
+    - IDec/*
+    - ImpSvxs/*
+    - IndExmDec/*
+    - LAB/*
+    - LandMist/*
+    - Lib/*
+    - MIC/*
+    - MDFA/*
+    - NghIDec/*
+
+pool:
+  vmImage: 'windows-latest' # or your specific agent pool name
+
+variables:
+  buildConfiguration: 'Release'
+
+steps:
+- powershell: |
+    # Get list of changed files
+    $changes = git diff --name-only HEAD HEAD~1
+    $modules = New-Object System.Collections.ArrayList
+    
+    # Check which modules have changes
+    if ($changes -match 'AirShipmt/') { $modules.Add("AirShipmt") | Out-Null }
+    if ($changes -match 'CITC/') { $modules.Add("CITC") | Out-Null }
+    if ($changes -match 'CommonRef/') { $modules.Add("CommonRef") | Out-Null }
+    if ($changes -match 'Control/') { $modules.Add("Control") | Out-Null }
+    if ($changes -match 'CSACmnRef/') { $modules.Add("CSACmnRef") | Out-Null }
+    if ($changes -match 'DocArchive/') { $modules.Add("DocArchive") | Out-Null }
+    if ($changes -match 'ExmRes/') { $modules.Add("ExmRes") | Out-Null }
+    if ($changes -match 'FreeZone/') { $modules.Add("FreeZone") | Out-Null }
+    if ($changes -match 'General/') { $modules.Add("General") | Out-Null }
+    if ($changes -match 'IDec/') { $modules.Add("IDec") | Out-Null }
+    if ($changes -match 'ImpSvxs/') { $modules.Add("ImpSvxs") | Out-Null }
+    if ($changes -match 'IndExmDec/') { $modules.Add("IndExmDec") | Out-Null }
+    if ($changes -match 'LAB/') { $modules.Add("LAB") | Out-Null }
+    if ($changes -match 'LandMist/') { $modules.Add("LandMist") | Out-Null }
+    if ($changes -match 'Lib/') { $modules.Add("Lib") | Out-Null }
+    if ($changes -match 'MIC/') { $modules.Add("MIC") | Out-Null }
+    if ($changes -match 'MDFA/') { $modules.Add("MDFA") | Out-Null }
+    if ($changes -match 'NghIDec/') { $modules.Add("NghIDec") | Out-Null }
+    
+    if ($modules.Count -eq 0) {
+      Write-Host "No module changes detected. Skipping build."
+      # Set a variable to skip subsequent steps
+      Write-Host "##vso[task.setvariable variable=skipBuild;isOutput=true]true"
+    } else {
+      Write-Host "Building changed modules: $($modules -join ', ')"
+      Write-Host "##vso[task.setvariable variable=skipBuild;isOutput=true]false"
+      # Convert to JSON and set as pipeline variable
+      $json = $modules | ConvertTo-Json
+      Write-Host "##vso[task.setvariable variable=modulesToBuild;isOutput=true]$json"
+    }
+  name: detectChanges
+
+- task: JavaToolInstaller@0
+  inputs:
+    versionSpec: '8' # or your Java version
+    jdkArchitectureOption: 'x64'
+    jdkSourceOption: 'PreInstalled'
+  condition: ne(variables['detectChanges.skipBuild'], 'true')
+
+- ${{ each module in split(variables['detectChanges.modulesToBuild'], ',') }}:
+  - script: |
+      echo "Building module: ${{ module }}"
+      cd ${{ module }}
+      javac -d ./target/classes ./src/main/java/**/*.java
+      jar cvf ${{ module }}.jar -C ./target/classes .
+    displayName: 'Build ${{ module }} module'
+    condition: and(succeeded(), ne(variables['detectChanges.skipBuild'], 'true'))
+  
+  - task: CopyFiles@2
+    displayName: 'Copy ${{ module }} artifacts'
+    inputs:
+      contents: '${{ module }}/**'
+      targetFolder: '$(Build.ArtifactStagingDirectory)/${{ module }}'
+    condition: and(succeeded(), ne(variables['detectChanges.skipBuild'], 'true'))
+  
+  - task: PublishBuildArtifacts@1
+    displayName: 'Publish ${{ module }} artifact'
+    inputs:
+      pathtoPublish: '$(Build.ArtifactStagingDirectory)/${{ module }}'
+      artifactName: '${{ module }}'
+    condition: and(succeeded(), ne(variables['detectChanges.skipBuild'], 'true'))
