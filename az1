@@ -1,0 +1,30 @@
+az
+
+
+- task: PowerShell@2
+  displayName: 'Start FireDaemon services'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "Starting FireDaemon services..."
+
+      # Path to FireDaemon executable
+      $fireDaemonPath = "C:\Program Files\FireDaemon Pro\FireDaemon.exe"
+
+      # Define services
+      $services = @(
+        "certscan ppland",
+        "certscan another"
+      )
+
+      foreach ($svc in $services) {
+        Write-Host "Starting service: $svc"
+        & "$fireDaemonPath" --start "$svc"
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Failed to start FireDaemon service '$svc'. Exit code: $LASTEXITCODE"
+          exit $LASTEXITCODE
+        } else {
+          Write-Host "Service '$svc' started successfully."
+        }
+      }
