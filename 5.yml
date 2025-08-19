@@ -1,0 +1,140 @@
+trigger:
+  branches:
+    include:
+      - dev1
+  paths:
+    include:
+      - '**/*.java'
+
+pool:
+  name: edi-pool
+  demands:
+    - Agent.Name -equals EDIQA
+
+variables:
+  JDK_HOME: 'C:\jdk160_05'
+  JAVAC: 'C:\jdk160_05\bin\javac.exe'
+
+steps:
+- checkout: self
+  fetchDepth: 2
+
+- powershell: |
+    & "$(JDK_HOME)\bin\java.exe" -version
+    & "$(JDK_HOME)\bin\javac.exe" -version
+  displayName: 'Verify JDK 1.6 on agent'
+
+# Detect changed .java files and compile only those, per module
+- powershell: |
+    $ErrorActionPreference = 'Stop'
+    cd "$(Build.SourcesDirectory)"
+
+    # Figure out the diff range
+    if ($env:Build_Reason -eq "PullRequest" -and $env:System_PullRequest_TargetBranch) {
+      git fetch origin $env:System_PullRequest_TargetBranch
+      $range = "origin/$($env:System_PullRequest_TargetBranch)..HEAD"
+    } else {
+      $range = "HEAD~1..HEAD"
+    }
+    Write-Host "Diff range: $range"
+
+    # List changed .java files
+    $changed = git diff --name-only $range -- '*.java' | Where-Object { $_.Trim() -ne '' }
+    if (-not $changed) {
+      Write-Host "No .java changes detected."
+      New-Item -ItemType Directory -Force -Path "$(Build.ArtifactStagingDirectory)\_no_changes" | Out-Null
+      exit 0
+    }
+    $changed | Set-Content "$(Build.ArtifactStagingDirectory)\_changed_java_files.txt"
+    Write-Host "Changed .java files:`n$($changed -join "`n")"
+
+    # Map changed files to top-level module names (first path segment)
+    $modMap = @{}
+    foreach ($f in $changed) {
+      $m = ($f -split '[\\/]')[0]
+      if (-not $modMap.ContainsKey($m)) { $modMap[$m] = New-Object System.Collections.ArrayList }
+      [void]$modMap[$m].Add($f)
+    }
+    Write-Host "Modules to build: $($modMap.Keys -join ', ')"
+
+    # Build a classpath with ALL modules' classes + ALL jars in Lib
+    $cpParts = @()
+    Get-ChildItem -Directory -Path "$(Build.SourcesDirectory)" | ForEach-Object {
+      $cl = Join-Path $_.FullName "classes"
+      if (Test-Path $cl) { $cpParts += $cl }
+    }
+    $libDir = Join-Path "$(Build.SourcesDirectory)" "Lib"
+    if (Test-Path $libDir) {
+      Get-ChildItem -Path $libDir -Filter *.jar | ForEach-Object { $cpParts += $_.FullName }
+    }
+    $classpath = ($cpParts -join ';')
+    Write-Host "Classpath entries: $($cpParts.Count)"
+
+    $javac = "$(JDK_HOME)\bin\javac.exe"
+
+    foreach ($module in $modMap.Keys) {
+      Write-Host "=== Building module: $module ==="
+
+      $moduleRoot = Join-Path "$(Build.SourcesDirectory)" $module
+      $outDir     = Join-Path $moduleRoot "classes"
+      New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+      # Only the changed .java files under src/
+      $srcChanged = $modMap[$module] | Where-Object { $_ -match "^$module[\\/](src|Src)[\\/].*\.java$" }
+      if (-not $srcChanged) {
+        Write-Host "No changed .java under $module/src — skipping compile for this module."
+      } else {
+        foreach ($rel in $srcChanged) {
+          $file = Join-Path "$(Build.SourcesDirectory)" $rel
+          Write-Host "Compiling $rel"
+          & $javac -g -encoding UTF-8 -source 1.6 -target 1.6 -Xlint:none -cp "$classpath" -d "$outDir" "$file"
+          if ($LASTEXITCODE -ne 0) { throw "javac failed for $rel" }
+        }
+      }
+
+      # Stage only what you deploy (exclude src and .data) into the artifact
+      $dest = Join-Path "$(Build.ArtifactStagingDirectory)" $module
+      $src  = $moduleRoot
+      # robocopy returns 1 when files are copied; treat <=7 as success.
+      cmd /c robocopy "$src" "$dest" /E /XD src .data >NUL
+      if ($LASTEXITCODE -gt 7) { throw "Robocopy failed for $module" }
+    }
+  displayName: 'Compile changed files and stage changed modules'
+
+- publish: $(Build.ArtifactStagingDirectory)
+  artifact: drop
+  displayName: 'Publish changed module(s) as artifact'
+  
+# Add below the first stage if you want a same-box copy
+stages:
+- stage: Build
+  jobs:
+  - job: BuildJob
+    # (the previous steps here)
+
+- stage: Deploy_QA
+  dependsOn: Build
+  jobs:
+  - deployment: CopyChangedModules
+    environment: 'QA'
+    pool:
+      name: edi-pool
+      demands:
+        - Agent.Name -equals EDIQA
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: drop
+          - powershell: |
+              $appHome = 'D:\Apps\Nebras-EDI-WindowsServices'  # TODO: set your path
+              $src = "$(Pipeline.Workspace)\drop"
+              Get-ChildItem -Directory $src | ForEach-Object {
+                $module = $_.FullName
+                $dest = Join-Path $appHome $_.Name
+                Write-Host "Deploying module $($_.Name) -> $dest"
+                cmd /c robocopy "$module" "$dest" /MIR /XD src .data >NUL
+                if ($LASTEXITCODE -gt 7) { throw "Robocopy failed for $($_.Name)" }
+              }
+            displayName: 'Copy changed module folders to QA install path'
