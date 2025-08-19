@@ -1,0 +1,99 @@
+C:\Oracle\Middleware\jdeveloper\modules\oracle.xdk_11.1.1\xmlparserv2.jar
+C:\Oracle\Middleware\jdeveloper\modules\oracle.xdk_11.1.1\xml.jar
+C:\jdbc9051\classes12dms.jar
+C:\jdbc9051\nls_charset12.jar
+
+trigger:
+  branches: { include: [ dev1 ] }
+  paths:    { include: [ '**/*.java' ] }
+
+pool:
+  name: edi-pool
+  demands:
+    - Agent.Name -equals EDIQA
+
+variables:
+  JDK_HOME: 'C:\jdk160_05'
+  JAVAC: 'C:\jdk160_05\bin\javac.exe'
+  ENCODING: 'Cp1256'
+  EXTRA_CP_FILE: 'tools\external-classpath.txt'
+
+steps:
+- checkout: self
+  fetchDepth: 2
+
+- powershell: |
+    & "$(JDK_HOME)\bin\java.exe" -version
+    & "$(JAVAC)" -version
+  displayName: 'Verify JDK 1.6'
+
+- powershell: |
+    $ErrorActionPreference = 'Stop'
+    $root = "$(Build.SourcesDirectory)"
+    cd $root
+
+    # Detect changed .java files
+    $range = "HEAD~1..HEAD"
+    $changed = git diff --name-only $range -- '*.java' | ? { $_.Trim() -ne '' }
+    if (-not $changed) {
+      Write-Host "No .java changes."
+      exit 0
+    }
+
+    # Map to modules (first-level folder names)
+    $mods = @{}
+    foreach ($f in $changed) {
+      $m = ($f -split '[\\/]')[0]
+      if (-not $mods.ContainsKey($m)) { $mods[$m] = @() }
+      $mods[$m] += ,$f
+    }
+    Write-Host "Modules to build: $($mods.Keys -join ', ')"
+
+    # === Build classpath ===
+    $cpParts = @()
+    # all modules' classes
+    Get-ChildItem -Directory -Path $root | % {
+      $cl = Join-Path $_.FullName 'classes'
+      if (Test-Path $cl) { $cpParts += $cl }
+    }
+    # external jars listed in text file
+    $extraFile = Join-Path $root '$(EXTRA_CP_FILE)'
+    if (Test-Path $extraFile) {
+      $lines = Get-Content $extraFile | ? { $_.Trim() -ne '' }
+      $cpParts += $lines
+    }
+    $classpath = ($cpParts -join ';')
+
+    $javac = '$(JAVAC)'
+    $encoding = '$(ENCODING)'
+
+    foreach ($module in $mods.Keys) {
+      Write-Host "`n=== Building module: $module ==="
+      $moduleRoot = Join-Path $root $module
+      $outDir = Join-Path $moduleRoot 'classes'
+      New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+      # Collect changed files in this module
+      $srcChanged = $mods[$module] | ? { $_ -match "^$module[\\/](src|Src)[\\/].*\.java$" } |
+                    % { Join-Path $root $_ }
+
+      if (-not $srcChanged) {
+        Write-Host "No changed sources under $module/src."
+      } else {
+        $argfile = Join-Path $env:Agent_TempDirectory "$module-changed.txt"
+        $srcChanged | Set-Content $argfile -Encoding ascii
+
+        & $javac -g -encoding $encoding -source 1.6 -target 1.6 -Xlint:none `
+                 -cp "$classpath" -d "$outDir" "@$argfile"
+        if ($LASTEXITCODE -ne 0) {
+          throw "javac failed for $module"
+        }
+      }
+    }
+  displayName: 'Compile changed modules with external jars'
+
+- publish: $(Build.ArtifactStagingDirectory)
+  artifact: drop
+  displayName: 'Publish changed module(s)'
+
+
