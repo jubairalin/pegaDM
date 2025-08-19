@@ -1,65 +1,109 @@
-  - powershell: |
-      if ('$(skipBuild)' -eq 'true') {
-        Write-Host "No Java changes, skipping."
-        exit 0
-      }
+trigger:
+  branches:
+    include:
+      - main
+      - develop
 
-      # Set JAVA_HOME and PATH for JDK 1.6
-      $env:JAVA_HOME = "C:\jdk160_05"
-      $env:PATH = "$env:JAVA_HOME\bin;" + $env:PATH
+pool:
+  name: ITF-Auto   # Your self-hosted pool
+  demands:
+    - agent.name -equals PREAZdev1
 
-      Write-Host "Using Java version:"
-      & java -version
+stages:
+- stage: Build
+  jobs:
+  - job: CompileJava
+    steps:
+    - checkout: self
 
-      $files = "$(javaFilesCsv)".Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
-      $modules = @{}
+    # Step 1: Detect changed Java files
+    - powershell: |
+        $changedFiles = git diff --name-only HEAD~1 HEAD | Where-Object { $_ -like "*.java" }
+        if (-not $changedFiles) {
+          Write-Host "##vso[task.setvariable variable=skipBuild]true"
+          Write-Host "No Java file changes detected. Skipping compilation."
+        } else {
+          Write-Host "##vso[task.setvariable variable=skipBuild]false"
+          Write-Host "Changed Java files:"
+          $changedFiles | ForEach-Object { Write-Host $_ }
+          $changedFiles -join "," | Out-File "$(Build.ArtifactStagingDirectory)\changedFiles.txt"
+          Write-Host "##vso[task.setvariable variable=javaFilesCsv]$($changedFiles -join ',')"
+        }
+      displayName: "Detect changed Java files"
 
-      # Group changed files by module (top folder)
-      foreach ($file in $files) {
-        $module = ($file -replace '\\','/') -split '/' | Select-Object -First 1
-        if (-not $modules.ContainsKey($module)) { $modules[$module] = @() }
-        $modules[$module] += $file
-      }
-
-      foreach ($module in $modules.Keys) {
-        Write-Host "=== Compiling module: $module ==="
-
-        $srcDir = "$module/src/main/java"
-        $libDir = "$module/lib"
-        $outputDir = "$module/target/classes"
-
-        if (-not (Test-Path $srcDir)) {
-          Write-Host "No src dir found for $module. Skipping."
-          continue
+    # Step 2: Compile with JDK 1.6
+    - powershell: |
+        if ('$(skipBuild)' -eq 'true') {
+          Write-Host "Skipping compilation because no Java files changed."
+          exit 0
         }
 
-        New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+        # Set JAVA_HOME and PATH for JDK 1.6
+        $env:JAVA_HOME = "C:\jdk160_05"
+        $env:PATH = "$env:JAVA_HOME\bin;" + $env:PATH
 
-        # Collect all java files
-        $javaFiles = Get-ChildItem -Recurse $srcDir -Filter *.java | ForEach-Object { $_.FullName }
-        if (-not $javaFiles) {
-          Write-Host "No .java files found in $srcDir"
-          continue
+        Write-Host "Using Java version:"
+        & java -version
+
+        $files = "$(javaFilesCsv)".Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+        $modules = @{}
+
+        # Group changed files by top-level folder (module)
+        foreach ($file in $files) {
+          $module = ($file -replace '\\','/') -split '/' | Select-Object -First 1
+          if (-not $modules.ContainsKey($module)) { $modules[$module] = @() }
+          $modules[$module] += $file
         }
 
-        # Build classpath including lib jars
-        $classpath = "."
-        if (Test-Path $libDir) {
-          $jars = Get-ChildItem $libDir -Filter *.jar | ForEach-Object { $_.FullName }
-          if ($jars) {
-            $classpath = ($jars -join ";") + ";."
+        foreach ($module in $modules.Keys) {
+          Write-Host "=== Compiling module: $module ==="
+
+          $srcDir = "$module/src/main/java"
+          $libDir = "$module/lib"
+          $outputDir = "$module/target/classes"
+
+          if (-not (Test-Path $srcDir)) {
+            Write-Host "No src dir found for $module. Skipping."
+            continue
           }
+
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+
+          # Collect all java files (full compile, ensures dependencies resolved)
+          $javaFiles = Get-ChildItem -Recurse $srcDir -Filter *.java | ForEach-Object { $_.FullName }
+          if (-not $javaFiles) {
+            Write-Host "No .java files found in $srcDir"
+            continue
+          }
+
+          # Build classpath including lib jars
+          $classpath = "."
+          if (Test-Path $libDir) {
+            $jars = Get-ChildItem $libDir -Filter *.jar | ForEach-Object { $_.FullName }
+            if ($jars) {
+              $classpath = ($jars -join ";") + ";."
+            }
+          }
+
+          Write-Host "Classpath: $classpath"
+
+          # Run javac with JDK 1.6
+          & "$env:JAVA_HOME\bin\javac.exe" -d $outputDir -cp $classpath $javaFiles
+          if ($LASTEXITCODE -ne 0) {
+            throw "Compilation failed for module $module"
+          }
+
+          Write-Host "✅ Compiled $module successfully"
         }
 
-        Write-Host "Classpath: $classpath"
+      displayName: "Compile Java with JDK 1.6"
+      condition: ne(variables['skipBuild'], 'true')
 
-        # Run javac from JDK 1.6
-        & "$env:JAVA_HOME\bin\javac.exe" -d $outputDir -cp $classpath $javaFiles
-        if ($LASTEXITCODE -ne 0) {
-          throw "Compilation failed for module $module"
-        }
-      }
-
-      Write-Host "✅ Compilation finished using JDK 1.6"
-    displayName: "Compile changed modules with JDK 1.6"
-    condition: ne(variables['skipBuild'], 'true')
+    # Step 3: Publish compiled classes (exploded folder) as artifact
+    - task: PublishBuildArtifacts@1
+      inputs:
+        PathtoPublish: '$(Build.SourcesDirectory)'
+        ArtifactName: 'compiled-classes'
+        publishLocation: 'Container'
+      condition: ne(variables['skipBuild'], 'true')
+      displayName: "Publish compiled classes as artifact"
