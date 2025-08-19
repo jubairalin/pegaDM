@@ -1,0 +1,65 @@
+  - powershell: |
+      if ('$(skipBuild)' -eq 'true') {
+        Write-Host "No Java changes, skipping."
+        exit 0
+      }
+
+      # Set JAVA_HOME and PATH for JDK 1.6
+      $env:JAVA_HOME = "C:\jdk160_05"
+      $env:PATH = "$env:JAVA_HOME\bin;" + $env:PATH
+
+      Write-Host "Using Java version:"
+      & java -version
+
+      $files = "$(javaFilesCsv)".Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+      $modules = @{}
+
+      # Group changed files by module (top folder)
+      foreach ($file in $files) {
+        $module = ($file -replace '\\','/') -split '/' | Select-Object -First 1
+        if (-not $modules.ContainsKey($module)) { $modules[$module] = @() }
+        $modules[$module] += $file
+      }
+
+      foreach ($module in $modules.Keys) {
+        Write-Host "=== Compiling module: $module ==="
+
+        $srcDir = "$module/src/main/java"
+        $libDir = "$module/lib"
+        $outputDir = "$module/target/classes"
+
+        if (-not (Test-Path $srcDir)) {
+          Write-Host "No src dir found for $module. Skipping."
+          continue
+        }
+
+        New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+
+        # Collect all java files
+        $javaFiles = Get-ChildItem -Recurse $srcDir -Filter *.java | ForEach-Object { $_.FullName }
+        if (-not $javaFiles) {
+          Write-Host "No .java files found in $srcDir"
+          continue
+        }
+
+        # Build classpath including lib jars
+        $classpath = "."
+        if (Test-Path $libDir) {
+          $jars = Get-ChildItem $libDir -Filter *.jar | ForEach-Object { $_.FullName }
+          if ($jars) {
+            $classpath = ($jars -join ";") + ";."
+          }
+        }
+
+        Write-Host "Classpath: $classpath"
+
+        # Run javac from JDK 1.6
+        & "$env:JAVA_HOME\bin\javac.exe" -d $outputDir -cp $classpath $javaFiles
+        if ($LASTEXITCODE -ne 0) {
+          throw "Compilation failed for module $module"
+        }
+      }
+
+      Write-Host "✅ Compilation finished using JDK 1.6"
+    displayName: "Compile changed modules with JDK 1.6"
+    condition: ne(variables['skipBuild'], 'true')
