@@ -1,0 +1,91 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - AirShipmt/*
+      - CITC/*
+      - CommonRef/*
+      - Control/*
+      - CSACmnRef/*
+      - DocArchive/*
+      - ExmRes/*
+      - FreeZone/*
+      - General/*
+      - IDec/*
+      - ImpSvxs/*
+      - IndExmDec/*
+      - LAB/*
+      - LandMist/*
+      - Lib/*
+      - MIC/*
+      - MDFA/*
+      - NghIDec/*
+
+# Use your self-hosted pool and agent
+pool:
+  name: ITF-Auto
+  demands:
+    - agent.name -equals PREAZdev1
+
+steps:
+  # Get repo with full history so git diff works
+  - checkout: self
+    fetchDepth: 0
+
+  # Step 1: Detect which Java files changed
+  - powershell: |
+      Write-Host "Detecting changed Java files..."
+      $changes = git diff --name-only HEAD^ HEAD | Where-Object { $_ -like "*.java" }
+
+      if (-not $changes) {
+        Write-Host "No Java changes detected."
+        Write-Host "##vso[task.setvariable variable=skipBuild]true"
+        exit 0
+      }
+
+      Write-Host "Changed Java files:`n$changes"
+
+      # Save as CSV for next step
+      $csv = $changes -join ','
+      Write-Host "##vso[task.setvariable variable=skipBuild]false"
+      Write-Host "##vso[task.setvariable variable=javaFilesCsv]$csv"
+    displayName: "Detect changed Java files"
+
+  # Step 2: Compile only changed files
+  - powershell: |
+      if ('$(skipBuild)' -eq 'true') {
+        Write-Host "No Java changes, skipping."
+        exit 0
+      }
+
+      $files = "$(javaFilesCsv)".Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+      Write-Host "Java files to compile: $($files -join ', ')"
+
+      foreach ($file in $files) {
+        Write-Host "Compiling $file ..."
+
+        $module = ($file -replace '\\','/') -split '/' | Select-Object -First 1
+        $outputDir = "$module/target/classes"
+
+        New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+
+        # Compile just this file, outputting to classes folder
+        & javac -d $outputDir $file
+        if ($LASTEXITCODE -ne 0) {
+          throw "Compilation failed for $file"
+        }
+      }
+
+      Write-Host "Compilation finished."
+    displayName: "Compile changed Java files"
+    condition: ne(variables['skipBuild'], 'true')
+
+  # Step 3: Publish compiled classes as exploded folder
+  - task: PublishBuildArtifacts@1
+    displayName: "Publish compiled classes"
+    inputs:
+      pathtoPublish: '$(Build.SourcesDirectory)/*/target/classes'
+      artifactName: 'classes'
+    condition: ne(variables['skipBuild'], 'true')
