@@ -1,0 +1,52 @@
+javac
+
+javac -g `
+-warn `
+-nowarn:320 -nowarn:372 -nowarn:412 -nowarn:413 -nowarn:415 `
+-nowarn:486 -nowarn:487 -nowarn:489 -nowarn:556 -nowarn:558 `
+-nowarn:560 -nowarn:561 -nowarn:705 `
+-Xlint:-fallthrough -Xlint:-serial -Xlint:-unchecked `
+-source 1.6 `
+-target 1.6 `
+-noquiet `
+-encoding Cp1256 `
+-d "D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project\AirShipmt\classes" `
+-namereferences `
+-cp "C:\Oracle\Middleware\jdk160_05\jre\lib\resources.jar;C:\Oracle\Middleware\jdk160_05\jre\lib\rt.jar;C:\Oracle\Middleware\jdk160_05\jre\lib\jsse.jar;C:\Oracle\Middleware\jdk160_05\jre\lib\jce.jar;C:\Oracle\Middleware\jdk160_05\jre\lib\charsets.jar;D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project\AirShipmt\classes;D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project\Lib\classes;D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project\CommonRef\classes;D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project\IDec\classes;C:\Oracle\Middleware\jdeveloper\modules\oracle.xdk_11.1.1\xmlparserv2.jar;C:\Oracle\Middleware\jdeveloper\modules\oracle.xdk_11.1.1\xml.jar;C:\jdbc9051\classes12.jar;C:\jdbc9051\classes12dms.jar;C:\jdbc9051\nls_charset12.jar" `
+-sourcepath "D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project\AirShipmt\src;C:\Oracle\Middleware\jdk160_05\src.zip" `
+"D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project\AirShipmt\src\AirShipmtBusiness\AirBillDtis.java"
+
+-----------------------
+# Set variables
+$JAVA_HOME = "C:\Oracle\Middleware\jdk160_05"
+$JDEV_HOME = "C:\Oracle\Middleware\jdeveloper"
+$JDBC_HOME = "C:\jdbc9051"
+$PROJECT_HOME = "D:\DeploymentChecking_CURR_DEV\EDL_DEV\Project"
+
+# Build classpath
+$classpath = @(
+    "$JAVA_HOME\jre\lib\resources.jar",
+    "$JAVA_HOME\jre\lib\rt.jar",
+    "$JAVA_HOME\jre\lib\jsse.jar",
+    "$JAVA_HOME\jre\lib\jce.jar",
+    "$JAVA_HOME\jre\lib\charsets.jar",
+    "$PROJECT_HOME\AirShipmt\classes",
+    "$PROJECT_HOME\Lib\classes",
+    "$PROJECT_HOME\CommonRef\classes",
+    "$PROJECT_HOME\IDec\classes",
+    "$JDEV_HOME\modules\oracle.xdk_11.1.1\xmlparserv2.jar",
+    "$JDEV_HOME\modules\oracle.xdk_11.1.1\xml.jar",
+    "$JDBC_HOME\classes12.jar",
+    "$JDBC_HOME\classes12dms.jar",
+    "$JDBC_HOME\nls_charset12.jar"
+) -join ";"
+
+# Execute javac
+javac -g -warn `
+-nowarn:320,372,412,413,415,486,487,489,556,558,560,561,705 `
+-Xlint:-fallthrough -Xlint:-serial -Xlint:-unchecked `
+-source 1.6 -target 1.6 -noquiet -encoding Cp1256 `
+-d "$PROJECT_HOME\AirShipmt\classes" `
+-cp $classpath `
+-sourcepath "$PROJECT_HOME\AirShipmt\src;$JAVA_HOME\src.zip" `
+"$PROJECT_HOME\AirShipmt\src\AirShipmtBusiness\AirBillDtis.java"
