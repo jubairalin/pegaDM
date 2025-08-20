@@ -50,3 +50,58 @@ javac -g -warn `
 -cp $classpath `
 -sourcepath "$PROJECT_HOME\AirShipmt\src;$JAVA_HOME\src.zip" `
 "$PROJECT_HOME\AirShipmt\src\AirShipmtBusiness\AirBillDtis.java"
+
+
+
+-----------------
+
+# Variables
+$JAVAC     = "C:\jdk160_05\bin\javac.exe"
+$ENCODING  = "Cp1256"
+$SOURCE    = "1.6"
+$TARGET    = "1.6"
+$MODULE    = "AirShipmt"
+$ROOT      = "C:\path\to\your\repo"
+$OUTDIR    = "$ROOT\$MODULE\classes"
+$SRC       = "$ROOT\$MODULE\src"
+
+# Build classpath:
+$cpParts = @()
+# add all module classes
+Get-ChildItem -Directory -Path $ROOT | % {
+  $cl = Join-Path $_.FullName 'classes'
+  if (Test-Path $cl) { $cpParts += $cl }
+}
+# add external jars listed in external-classpath.txt
+$extraFile = "$ROOT\tools\external-classpath.txt"
+if (Test-Path $extraFile) {
+  $lines = Get-Content $extraFile | ? { $_.Trim() -ne '' }
+  $cpParts += $lines
+}
+$CLASSPATH = ($cpParts -join ';')
+
+# === Incremental compile (changed files only) ===
+# Example changed files:
+$changed = @(
+  "$SRC\com\nebras\airshipmt\ShipmentProcessor.java"
+)
+
+$argfile = "$env:TEMP\airshipmt-changed.txt"
+$changed | Set-Content $argfile -Encoding ascii
+
+& $JAVAC -g -encoding $ENCODING -source $SOURCE -target $TARGET -Xlint:none `
+         -cp "$CLASSPATH" -d "$OUTDIR" "@$argfile"
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Incremental compile failed – falling back to full module compile..."
+
+    # === Full module compile (all sources in AirShipmt/src) ===
+    $allSources = Get-ChildItem -Path $SRC -Recurse -Include *.java | % { $_.FullName }
+    $argfileAll = "$env:TEMP\airshipmt-all.txt"
+    $allSources | Set-Content $argfileAll -Encoding ascii
+
+    & $JAVAC -g -encoding $ENCODING -source $SOURCE -target $TARGET -Xlint:none `
+             -cp "$CLASSPATH" -d "$OUTDIR" "@$argfileAll"
+}
+-----------------
+
