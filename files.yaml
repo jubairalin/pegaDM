@@ -1,0 +1,42 @@
+- task: PowerShell@2
+  displayName: 'Detect Modified Java Files on dev1'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "=== GIT MODIFIED JAVA FILES DETECTION ===" -ForegroundColor Green
+      Write-Host "Branch: dev1" -ForegroundColor Cyan
+
+      # Fetch the latest changes from origin to ensure we have all references
+      git fetch origin dev1
+
+      # Check if we have a previous commit to compare against
+      if ([string]::IsNullOrEmpty('$(Build.SourceVersionPrevious)')) {
+        # First build or no previous commit - check all Java files in dev1
+        Write-Host "First build - checking all Java files:" -ForegroundColor Yellow
+        $modifiedFiles = git ls-files -- '*.java'
+      } else {
+        # Use the previous successful commit provided by Azure DevOps
+        $lastCommitHash = '$(Build.SourceVersionPrevious)'
+        Write-Host "Comparing with last build commit: $lastCommitHash" -ForegroundColor Cyan
+        # Compare with the current HEAD on dev1
+        $modifiedFiles = git diff --name-only $lastCommitHash HEAD -- '*.java'
+      }
+
+      Write-Host "`n=== MODIFIED JAVA FILES ===" -ForegroundColor Green
+
+      if ($modifiedFiles -and $modifiedFiles.Count -gt 0) {
+        Write-Host "Found $($modifiedFiles.Count) modified Java file(s):" -ForegroundColor Green
+        
+        # Print just the file names in a clean list
+        $modifiedFiles | ForEach-Object {
+          Write-Host "• $_" -ForegroundColor White
+        }
+
+        # Save the list to a file for use in later steps
+        $modifiedFiles | Out-File -FilePath "$(Build.BinariesDirectory)\modified_java_files.txt" -Encoding UTF8
+        Write-Host "`nFile list saved for compilation: $(Build.BinariesDirectory)\modified_java_files.txt" -ForegroundColor Green
+      } else {
+        Write-Host "No Java files were modified since the last build." -ForegroundColor Yellow
+        # Create an empty file to avoid errors in later steps
+        "" | Out-File -FilePath "$(Build.BinariesDirectory)\modified_java_files.txt" -Encoding UTF8
+      }
