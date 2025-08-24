@@ -153,7 +153,7 @@ stages:
         ------------------------------
 
 
-        # No trigger set as requested
+# No trigger set as requested
 trigger: none
 
 variables:
