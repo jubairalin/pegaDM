@@ -150,3 +150,132 @@ stages:
         artifact: 'MyJavaApplication'
         publishLocation: 'pipeline'
       displayName: 'Publish Artifact'
+------------------------------
+# azure-pipelines.yml
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - 'Applications/*/src/*.java' # Only trigger the pipeline if Java files are changed
+
+pool:
+  name: edi-pool
+  demands:
+    - agent.name -equals EDIQA
+
+variables:
+  # The Pipeline.Workspace is the root directory on the agent where your code is checked out.
+  EDL_HOME: $(Pipeline.Workspace)
+  # The path to the pre-installed javac executable on the specific EDIQA agent
+  JAVAEXE: 'F:\Pipeline\jdk160_05\Univ.Javac.exe'
+  # A directory to store all the dependent JARs.
+  DEPENDENT_JARS_DIR: 'F:\Pipeline\dependent-jars'
+
+stages:
+- stage: Build
+  jobs:
+  - job: Build_Java_Application
+    steps:
+    # Step 1: Checkout the code from the repository
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    # Step 2: The main compilation logic
+    - powershell: |
+        Write-Host "EDL_HOME is set to: $env:EDL_HOME"
+        Write-Host "JAVAEXE is set to: $env:JAVAEXE"
+        Write-Host "Current working directory: $(Get-Location)"
+
+        # 1. Get list of changed Java files since the last commit
+        $changedFiles = git diff --name-only HEAD HEAD~1 | Where-Object { $_ -like 'Applications/*/src/*.java' }
+
+        if (-not $changedFiles) {
+            Write-Host "No relevant Java files were changed in the 'Applications/*/src/' directory. Skipping compilation."
+            exit 0
+        }
+
+        Write-Host "Changed files to compile:"
+        $changedFiles | ForEach-Object { Write-Host " - $_" }
+
+        # 2. Define the function to get classpaths from dependencies.txt
+        function Get-DependentClasspaths {
+            param(
+                [String]$ApplicationName,
+                [String]$DependenciesFile
+            )
+            if (-not (Test-Path $DependenciesFile)) { throw "File not found: $DependenciesFile" }
+            if (-not $env:EDL_HOME) { throw "EDL_HOME is not set." }
+            
+            $line = Get-Content $DependenciesFile | Where-Object { ($_ -notmatch '^\s*#') -and ($_ -match "\s*$ApplicationName\s*=") }
+            if (-not $line) { throw "Key '$ApplicationName' not found in $DependenciesFile" }
+            
+            $values = ($line.split('=', 2)[1].Trim()).Split(',') | ForEach-Object { $_.Trim() }
+            $classpath = ($values | ForEach-Object { "$env:EDL_HOME\$_\classes" }) -join ';'
+            return $classpath
+        }
+
+        # 3. Define the static part of your classpath (dependent JARs)
+        # Using the hardcoded path from your original script and the variable
+        $dependentJars = "$env:DEPENDENT_JARS_DIR\oracle.xdk_11.1.1.xmlparserv2.jar;$env:DEPENDENT_JARS_DIR\jdbc5001.jar"
+
+        # 4. Compile each changed file
+        foreach ($file in $changedFiles) {
+            Write-Host "`nStarting processing for: $file"
+
+            # Extract $APPLICATION_HOME from the file path (e.g., "ZAKAH" from "Applications/ZAKAH/src/...")
+            $appName = ($file -split '/')[1]
+            Write-Host "Application Name: $appName"
+
+            # Extract the module/class name (e.g., "ZAKH_MSO" from "Applications/ZAKAH/src/ZAKH_MSO.java")
+            $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($file)
+            Write-Host "Module/Class Name: $moduleName"
+
+            # Build the classpath for this specific application
+            $depsFile = "$env:EDL_HOME\Applications\$appName\dependencies.txt"
+            Write-Host "Looking for dependencies file: $depsFile"
+            $dependentClasspath = Get-DependentClasspaths -ApplicationName $appName -DependenciesFile $depsFile
+
+            # Combine the JARs and the application-specific classpaths
+            $fullClassPath = "$dependentJars;$dependentClasspath"
+            Write-Host "Full Classpath: $fullClassPath"
+
+            # Set up source and destination paths
+            $destinationPath = "$env:EDL_HOME\target_classes"
+            $sourceFile = "$env:EDL_HOME\$file"
+
+            # Create the target directory for compiled classes if it doesn't exist
+            New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
+
+            Write-Host "Compiling $sourceFile to $destinationPath"
+
+            # Run the compiler for this single module using the pre-installed JAVAEXE
+            & "$env:JAVAEXE" -cp "$fullClassPath" -d "$destinationPath" "$sourceFile"
+
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "SUCCESS: Compiled $moduleName" -ForegroundColor Green
+            } else {
+                Write-Error "FAILED to compile $moduleName. Check for errors above."
+                exit 1 # This will fail the pipeline step
+            }
+        }
+      displayName: 'Find Changes and Compile Java'
+
+    # Step 3: Package the entire application (compiled classes + source) into an artifact
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: '$(EDL_HOME)'
+        includeRootFolder: true
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId)_Application.zip'
+        replaceExistingArchive: true
+      displayName: 'Package Application Artifact'
+
+    # Step 4: Publish the artifact to Azure Pipelines
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifact: 'MyJavaApplication'
+        publishLocation: 'pipeline'
+      displayName: 'Publish Artifact'
