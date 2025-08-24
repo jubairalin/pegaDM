@@ -1,0 +1,152 @@
+# azure-pipelines.yml
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - 'Applications/*/src/*.java' # Only trigger the pipeline if Java files are changed
+
+pool:
+  vmImage: 'windows-latest' # Using a Windows agent is crucial for your F:\ paths
+
+variables:
+  # The Pipeline.Workspace is the root directory on the agent where your code is checked out.
+  # We set EDL_HOME to this location. All your paths will be relative to this.
+  EDL_HOME: $(Pipeline.Workspace)
+  # A directory to store all the dependent JARs. You MUST upload these to a Secure File library in Azure DevOps
+  # and use the DownloadSecureFile task to get them, or use a universal path accessible to the agent.
+  DEPENDENT_JARS_DIR: $(Pipeline.Workspace)\dependent-jars
+
+stages:
+- stage: Build
+  jobs:
+  - job: Build_Java_Application
+    steps:
+    # Step 1: Checkout the code from the repository
+    - checkout: self
+      displayName: 'Checkout Code'
+
+    # Step 2: Install the required JDK
+    - task: JavaToolInstaller@0
+      inputs:
+        versionSpec: '8'
+        jdkArchitectureOption: 'x64'
+        jdkSourceOption: 'PreInstalled'
+      displayName: 'Install JDK 8'
+
+    # Step 3: Download dependent JARs (CRITICAL - See note below)
+    # This example assumes you uploaded your JARs as Secure Files in the Pipeline UI.
+    # You need one task per JAR. This is a placeholder for two JARs.
+    # - task: DownloadSecureFile@1
+    #   name: xdk_jar
+    #   inputs:
+    #     secureFile: 'oracle.xdk_11.1.1.xmlparserv2.jar'
+    #   displayName: 'Download XDK JAR'
+    # - task: DownloadSecureFile@1
+    #   name: jdbc_jar
+    #   inputs:
+    #     secureFile: 'jdbc5001.jar'
+    #   displayName: 'Download JDBC JAR'
+
+    # Step 4: The main compilation logic
+    - powershell: |
+        Write-Host "EDL_HOME is set to: $env:EDL_HOME"
+        Write-Host "Current working directory: $(Get-Location)"
+
+        # 1. Get list of changed Java files since the last commit
+        $changedFiles = git diff --name-only HEAD HEAD~1 | Where-Object { $_ -like 'Applications/*/src/*.java' }
+
+        if (-not $changedFiles) {
+            Write-Host "No relevant Java files were changed in the 'Applications/*/src/' directory. Skipping compilation."
+            exit 0
+        }
+
+        Write-Host "Changed files to compile:"
+        $changedFiles | ForEach-Object { Write-Host " - $_" }
+
+        # 2. Define the function to get classpaths from dependencies.txt
+        function Get-DependentClasspaths {
+            param(
+                [String]$ApplicationName,
+                [String]$DependenciesFile
+            )
+            if (-not (Test-Path $DependenciesFile)) { throw "File not found: $DependenciesFile" }
+            if (-not $env:EDL_HOME) { throw "EDL_HOME is not set." }
+            
+            $line = Get-Content $DependenciesFile | Where-Object { ($_ -notmatch '^\s*#') -and ($_ -match "\s*$ApplicationName\s*=") }
+            if (-not $line) { throw "Key '$ApplicationName' not found in $DependenciesFile" }
+            
+            $values = ($line.split('=', 2)[1].Trim()).Split(',') | ForEach-Object { $_.Trim() }
+            $classpath = ($values | ForEach-Object { "$env:EDL_HOME\$_\classes" }) -join ';'
+            return $classpath
+        }
+
+        # 3. Define the static part of your classpath (dependent JARs)
+        # You MUST ensure these JARs are available on the agent.
+        # This example uses the path from your script. Update this to use $(DEPENDENT_JARS_DIR) or the downloaded secure file path.
+        $dependentJars = "F:\Pipeline\dependent-jars\oracle.xdk_11.1.1.xmlparserv2.jar;F:\Pipeline\dependent-jars\jdbc5001.jar"
+        # If using DownloadSecureFile tasks, it would look like this:
+        # $dependentJars = "$(xdk_jar.secureFilePath);$(jdbc_jar.secureFilePath)"
+
+        # 4. Compile each changed file
+        foreach ($file in $changedFiles) {
+            Write-Host "`nStarting processing for: $file"
+
+            # Extract $APPLICATION_HOME from the file path (e.g., "ZAKAH" from "Applications/ZAKAH/src/...")
+            $appName = ($file -split '/')[1]
+            Write-Host "Application Name: $appName"
+
+            # Extract the module/class name (e.g., "ZAKH_MSO" from "Applications/ZAKAH/src/ZAKH_MSO.java")
+            $moduleName = [System.IO.Path]::GetFileNameWithoutExtension($file)
+            Write-Host "Module/Class Name: $moduleName"
+
+            # Build the classpath for this specific application
+            $depsFile = "$env:EDL_HOME\Applications\$appName\dependencies.txt"
+            Write-Host "Looking for dependencies file: $depsFile"
+            $dependentClasspath = Get-DependentClasspaths -ApplicationName $appName -DependenciesFile $depsFile
+
+            # Combine the JARs and the application-specific classpaths
+            $fullClassPath = "$dependentJars;$dependentClasspath"
+            Write-Host "Full Classpath: $fullClassPath"
+
+            # Set up source and destination paths
+            $destinationPath = "$env:EDL_HOME\target_classes"
+            $sourceFile = "$env:EDL_HOME\$file"
+
+            # Create the target directory for compiled classes if it doesn't exist
+            New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
+
+            Write-Host "Compiling $sourceFile to $destinationPath"
+
+            # Run the compiler for this single module
+            & "$env:JAVA_HOME\bin\javac.exe" -cp "$fullClassPath" -d "$destinationPath" "$sourceFile"
+
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "SUCCESS: Compiled $moduleName" -ForegroundColor Green
+            } else {
+                Write-Error "FAILED to compile $moduleName. Check for errors above."
+                exit 1 # This will fail the pipeline step
+            }
+        }
+      displayName: 'Find Changes and Compile Java'
+      env:
+        JAVA_HOME: $(JAVA_HOME) # Pass the variable set by the JavaToolInstaller task
+
+    # Step 5: Package the entire application (compiled classes + source) into an artifact
+    - task: ArchiveFiles@2
+      inputs:
+        rootFolderOrFile: '$(EDL_HOME)'
+        includeRootFolder: true
+        archiveType: 'zip'
+        archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId)_Application.zip'
+        replaceExistingArchive: true
+      displayName: 'Package Application Artifact'
+
+    # Step 6: Publish the artifact to Azure Pipelines
+    - task: PublishPipelineArtifact@1
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)'
+        artifact: 'MyJavaApplication'
+        publishLocation: 'pipeline'
+      displayName: 'Publish Artifact'
