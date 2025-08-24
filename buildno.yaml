@@ -1,0 +1,81 @@
+- task: PowerShell@2
+  displayName: 'Capture Changed Files and Create Build Info'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "`n=== CAPTURING BUILD INFORMATION ===" -ForegroundColor Green
+      
+      # Create build information with timestamp
+      $buildTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+      $buildNumber = "$buildTimestamp" + "_build$($env:BUILD_BUILDID)"
+      
+      Write-Host "Build Number: $buildNumber" -ForegroundColor Cyan
+      Write-Host "Application Name: $(APPLICATION_NAME)" -ForegroundColor Cyan
+      
+      # Read modified files from the previous task
+      $changedFiles = @()
+      if (Test-Path "$(Build.BinariesDirectory)\modified_java_files.txt") {
+        $changedFiles = Get-Content -Path "$(Build.BinariesDirectory)\modified_java_files.txt" -Encoding UTF8
+        Write-Host "Number of changed files: $($changedFiles.Count)" -ForegroundColor Cyan
+        
+        # Display the changed files
+        Write-Host "`n=== CHANGED FILES ===" -ForegroundColor Green
+        $counter = 1
+        foreach ($file in $changedFiles) {
+          Write-Host "$counter. $file" -ForegroundColor White
+          $counter++
+        }
+      }
+      
+      # Create build info object with application name and changed files array
+      $buildInfo = @{
+        "applicationName" = "$(APPLICATION_NAME)"
+        "buildNumber" = $buildNumber
+        "buildTimestamp" = $buildTimestamp
+        "changedFiles" = @($changedFiles)
+        "totalChangedFiles" = $changedFiles.Count
+        "sourceBranch" = "$(Build.SourceBranch)"
+        "buildId" = "$(Build.BuildId)"
+      }
+      
+      # Convert to JSON and save to file
+      $buildInfoJson = $buildInfo | ConvertTo-Json -Depth 3
+      $buildInfoJson | Out-File -FilePath "$(Build.BinariesDirectory)\build_info.json" -Encoding UTF8
+      
+      Write-Host "`n=== BUILD INFO ===" -ForegroundColor Green
+      Write-Host "Build info saved to: $(Build.BinariesDirectory)\build_info.json" -ForegroundColor Yellow
+      Write-Host $buildInfoJson -ForegroundColor Gray
+      
+      # Set build number for the pipeline (visible in Azure DevOps UI)
+      echo "##vso[build.updatebuildnumber]$buildNumber"
+      
+      # Store variables for subsequent tasks
+      echo "##vso[task.setvariable variable=BUILD_NUMBER]$buildNumber"
+      echo "##vso[task.setvariable variable=BUILD_TIMESTAMP]$buildTimestamp"
+      echo "##vso[task.setvariable variable=CHANGED_FILES_COUNT]$($changedFiles.Count)"
+      
+      # Create target build directory with timestamp
+      $targetBuildPath = "$(EDL_HOME)\target_build_$(BUILD_NUMBER)"
+      New-Item -ItemType Directory -Path $targetBuildPath -Force | Out-Null
+      echo "##vso[task.setvariable variable=TARGET_BUILD_PATH]$targetBuildPath"
+      
+      Write-Host "`n=== TARGET BUILD DIRECTORY ===" -ForegroundColor Green
+      Write-Host "Target build path: $targetBuildPath" -ForegroundColor Cyan
+      Write-Host "Directory created successfully!" -ForegroundColor Green
+      
+      # Prepare for compilation - create a batch file or script for compiling changed files
+      if ($changedFiles.Count -gt 0) {
+        $compileScript = @()
+        $compileScript += "echo Starting compilation for build $buildNumber"
+        $compileScript += "echo Application: $(APPLICATION_NAME)"
+        $compileScript += "echo Changed files: $($changedFiles.Count)"
+        $compileScript += ""
+        $compileScript += "# Compilation commands would go here"
+        $compileScript += "# For each file in changedFiles array, compile individually"
+        
+        $compileScript | Out-File -FilePath "$targetBuildPath\compile_commands.txt" -Encoding UTF8
+        Write-Host "Compilation instructions saved to: $targetBuildPath\compile_commands.txt" -ForegroundColor Yellow
+      }
+      
+      Write-Host "`n✓ Build information captured successfully!" -ForegroundColor Green
+      Write-Host "✓ Ready for target build creation: $(BUILD_NUMBER)" -ForegroundColor Green
