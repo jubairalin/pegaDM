@@ -1,0 +1,91 @@
+- task: PowerShell@2
+  displayName: 'Capture Changed Files and Create Build Info'
+  inputs:
+    targetType: 'inline'
+    script: |
+      Write-Host "`n=== CAPTURING BUILD INFORMATION ===" -ForegroundColor Green
+      
+      # Create build information with timestamp
+      $buildTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+      $buildNumber = "$buildTimestamp" + "_build$($env:BUILD_BUILDID)"
+      
+      Write-Host "Build Number: $buildNumber" -ForegroundColor Cyan
+      
+      # Read application name (with fallback if variable not set)
+      $applicationName = "ZAKAH"  # Default application name
+      if (-not [string]::IsNullOrEmpty("$(APPLICATION_NAME)")) {
+          $applicationName = "$(APPLICATION_NAME)"
+      }
+      Write-Host "Application Name: $applicationName" -ForegroundColor Cyan
+      
+      # Read modified files from the previous task
+      $changedFiles = @()
+      if (Test-Path "$(Build.BinariesDirectory)\modified_java_files.txt") {
+          $changedFiles = Get-Content -Path "$(Build.BinariesDirectory)\modified_java_files.txt" -Encoding UTF8
+          Write-Host "Number of changed files: $($changedFiles.Count)" -ForegroundColor Cyan
+          
+          # Display the changed files
+          Write-Host "`n=== CHANGED FILES ===" -ForegroundColor Green
+          $counter = 1
+          foreach ($file in $changedFiles) {
+              Write-Host "$counter. $file" -ForegroundColor White
+              $counter++
+          }
+      }
+      
+      # Create array with application name and changed files
+      $buildData = @{
+          "application" = $applicationName
+          "changedFiles" = $changedFiles
+          "buildMetadata" = @{
+              "buildNumber" = $buildNumber
+              "timestamp" = $buildTimestamp
+              "totalFiles" = $changedFiles.Count
+          }
+      }
+      
+      # Convert to JSON and save to file
+      $buildDataJson = $buildData | ConvertTo-Json -Depth 3
+      $buildDataJson | Out-File -FilePath "$(Build.BinariesDirectory)\build_data.json" -Encoding UTF8
+      
+      Write-Host "`n=== BUILD DATA ===" -ForegroundColor Green
+      Write-Host "Build data saved to: $(Build.BinariesDirectory)\build_data.json" -ForegroundColor Yellow
+      Write-Host $buildDataJson -ForegroundColor Gray
+      
+      # Set build number for the pipeline
+      echo "##vso[build.updatebuildnumber]$buildNumber"
+      
+      # Store variables for subsequent tasks
+      echo "##vso[task.setvariable variable=BUILD_NUMBER]$buildNumber"
+      echo "##vso[task.setvariable variable=BUILD_TIMESTAMP]$buildTimestamp"
+      echo "##vso[task.setvariable variable=APPLICATION_NAME]$applicationName"
+      echo "##vso[task.setvariable variable=CHANGED_FILES_COUNT]$($changedFiles.Count)"
+      
+      # Create target build directory with timestamp
+      $targetBuildPath = "target_build_$buildNumber"
+      New-Item -ItemType Directory -Path $targetBuildPath -Force | Out-Null
+      echo "##vso[task.setvariable variable=TARGET_BUILD_PATH]$targetBuildPath"
+      
+      Write-Host "`n=== TARGET BUILD DIRECTORY ===" -ForegroundColor Green
+      Write-Host "Target build path: $targetBuildPath" -ForegroundColor Cyan
+      Write-Host "Directory created successfully!" -ForegroundColor Green
+      
+      # Create a summary file in the target build directory
+      $summaryContent = @"
+BUILD SUMMARY
+=============
+Application: $applicationName
+Build Number: $buildNumber
+Build Timestamp: $buildTimestamp
+Total Changed Files: $($changedFiles.Count)
+
+CHANGED FILES:
+=============
+$($changedFiles -join "`n")
+"@
+      
+      $summaryContent | Out-File -FilePath "$targetBuildPath\build_summary.txt" -Encoding UTF8
+      
+      Write-Host "`n✓ Build information captured successfully!" -ForegroundColor Green
+      Write-Host "✓ Target build created: $targetBuildPath" -ForegroundColor Green
+      Write-Host "✓ Build summary saved to: $targetBuildPath\build_summary.txt" -ForegroundColor Green
