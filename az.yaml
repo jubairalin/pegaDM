@@ -279,3 +279,98 @@ stages:
         artifact: 'MyJavaApplication'
         publishLocation: 'pipeline'
       displayName: 'Publish Artifact'
+
+      -------------------------
+
+      # azure-pipelines.yml
+trigger:
+  branches:
+    include:
+      - main # or your development branch name
+  paths:
+    include:
+      - '**/*.java' # Trigger on any Java file change in the repository
+
+pool:
+  vmImage: 'windows-latest' # Uses a Microsoft-hosted Windows agent
+
+steps:
+# Step 1: Checkout the code from the repository
+- checkout: self
+  displayName: 'Checkout Code'
+
+# Step 2: Your PowerShell Script (Modified for Azure DevOps context)
+- powershell: |
+    # Define variables from your original script
+    $EDL_HOME = "$(Pipeline.Workspace)"
+    $DependenciesFile = "$EDL_HOME\dependencies.txt"
+    
+    # These would be dynamically set for each changed file. For this example, we use placeholders.
+    # In a real scenario, you would loop through changed files to set these.
+    $APPLICATION_HOME = "ZAKAH" # This should be discovered from the changed file's path
+    $MODULE = "ZAKH_MSO"        # This should be the name of the changed Java file
+
+    Write-Host "EDL_HOME is set to: $EDL_HOME"
+    Write-Host "Application: $APPLICATION_HOME"
+    Write-Host "Module: $MODULE"
+
+    # ------- Your Original Script Logic (Adjusted) -------
+    if (-not (Test-Path $DependenciesFile)) { 
+        Write-Error "File not found: $DependenciesFile"
+        exit 1
+    }
+    if (-not $EDL_HOME) { 
+        Write-Error "EDL_HOME is not set." 
+        exit 1
+    }
+
+    $line = Get-Content $DependenciesFile | Where-Object { ($_ -notmatch '^\s*#') -and ($_ -match "\s*$APPLICATION_HOME\s*=") }
+    if (-not $line) { 
+        Write-Error "Key '$APPLICATION_HOME' not found in $DependenciesFile" 
+        exit 1
+    }
+
+    $values = ($line.split('=', 2)[1].Trim()).Split(',') | ForEach-Object { $_.Trim() }
+    $classpath = ($values | ForEach-Object { "$EDL_HOME\$_\classes" }) -join ';'
+
+    Write-Host "Generated classpath: $classpath"
+    Write-Host "##vso[task.setvariable variable=dependent_classes]$classpath"
+    # ------- End of Your Script Logic -------
+
+    # Now, use the determined $classpath to compile the specific changed module
+    # This part needs to be adapted to find which files actually changed.
+    $dependent_jars = "F:\Pipeline\dependent-jars\oracle.xdk_11.1.1.xmlparserv2.jar;F:\Pipeline\dependent-jars\jdbc5001.jar"
+    $fullClassPath = "$dependent_jars;$classpath"
+    $destination_path = "$EDL_HOME\target_classes"
+    $source_file = "$EDL_HOME\$APPLICATION_HOME\src\$MODULE.java"
+
+    New-Item -ItemType Directory -Path $destination_path -Force | Out-Null
+
+    Write-Host "Compiling $source_file ..."
+    & "javac" -cp "$fullClassPath" -d "$destination_path" "$source_file"
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Compilation failed for $MODULE"
+        exit 1
+    }
+    Write-Host "Compilation successful for $MODULE"
+
+  displayName: 'Compile Changed Java Code'
+
+# Step 3: Package the ENTIRE application (everything that was checked out + the new compiled classes)
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: '$(Pipeline.Workspace)' # This is the root of your repository
+    includeRootFolder: false
+    archiveType: 'zip'
+    archiveFile: '$(Build.ArtifactStagingDirectory)/MyApplication.zip'
+    replaceExistingArchive: true
+  displayName: 'Package Application Artifact'
+
+# Step 4: Publish the artifact to Azure Artifacts
+- task: PublishPipelineArtifact@1
+  inputs:
+    targetPath: '$(Build.ArtifactStagingDirectory)'
+    artifact: 'my-java-app'
+    publishLocation: 'pipeline'
+  displayName: 'Publish to Azure Artifacts'
