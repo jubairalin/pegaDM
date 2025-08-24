@@ -1,0 +1,151 @@
+# No trigger set as requested
+trigger: none
+
+variables:
+  EDL_HOME: '$(Pipeline.Workspace)'
+  APPLICATION_NAME: 'ZAKAH'
+  MODULE: 'ZAKH_MSO'
+  JAVAEXE: 'F:\Pipeline\jdk160_05\Univ.Javac.exe'
+
+pool:
+  name: edi-pool
+  demands:
+    - agent.name -equals EDIQA
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildJava
+    steps:
+    - checkout: self
+      path: 'dev1'
+
+    - task: PowerShell@2
+      displayName: 'Get Modified Java Files'
+      inputs:
+        targetType: 'inline'
+        script: |
+          # Get the list of modified Java files since last successful build
+          $lastSuccessfulCommit = git log --oneline -n 1 --grep="Build succeeded" | Select-Object -First 1
+          if ($lastSuccessfulCommit) {
+            $lastCommitHash = $lastSuccessfulCommit.Split(' ')[0]
+            $modifiedFiles = git diff --name-only $lastCommitHash HEAD -- '*.java'
+          } else {
+            # If no previous successful build, check all Java files
+            $modifiedFiles = git ls-files -- '*.java'
+          }
+          
+          if ($modifiedFiles) {
+            Write-Host "Java files to compile:"
+            $modifiedFiles | ForEach-Object { Write-Host $_ }
+            
+            # Store the list in a variable for subsequent steps
+            echo "##vso[task.setvariable variable=MODIFIED_JAVA_FILES]$($modifiedFiles -join '|')"
+          } else {
+            Write-Host "No Java files need compilation"
+            echo "##vso[task.setvariable variable=MODIFIED_JAVA_FILES]none"
+          }
+
+    - task: PowerShell@2
+      displayName: 'Set up Classpath and Compile'
+      inputs:
+        targetType: 'inline'
+        script: |
+          # Your existing PowerShell function
+          function Get-DependentClasspaths {
+            param(
+              [string]$ApplicationName,
+              [string]$DependenciesFile = ".\dependencies.txt"
+            )
+
+            if (-not (Test-Path $DependenciesFile)) { 
+              throw "File not found: $DependenciesFile" 
+            }
+            
+            if (-not $env:EDL_HOME) { 
+              throw "EDL_HOME is not set." 
+            }
+            
+            $lines = Get-Content $DependenciesFile
+            $line = $lines | Where-Object { 
+              $_ -notmatch '^\s*$' -and $_ -match "^\s*$ApplicationName\s*=" 
+            }
+            
+            if (-not $line) { 
+              throw "Key '$ApplicationName' not found in $DependenciesFile" 
+            }
+            
+            $values = ($line.Split('=', 2)[1].Split(',')) | ForEach-Object { $_.Trim() }
+            $classpath = ($values | ForEach-Object { 
+              "$env:EDL_HOME\$_\classes" 
+            }) -join ';'
+            
+            return $classpath
+          }
+
+          # Set up environment using your variables
+          $dependent_classes = Get-DependentClasspaths -ApplicationName "$(APPLICATION_NAME)"
+          $dependent_jars = "F:\Pipeline\dependent-jars\oracle.xdk_11.1.1.xmlparserv2.jar;F:\Pipeline\dependent-jars\oracle.xdk_11.1.1.xmlparser;F:\Pipeline\dependent-jar\jdbc5001\classszl3.jar"
+          $destination_path = "$(EDL_HOME)\target_classes"
+          
+          # Create destination directory
+          New-Item -ItemType Directory -Path $destination_path -Force
+
+          # Compile only modified files if any
+          if ("$(MODIFIED_JAVA_FILES)" -ne "none") {
+            $modifiedFilesArray = "$(MODIFIED_JAVA_FILES)".Split('|')
+            
+            foreach ($javaFile in $modifiedFilesArray) {
+              Write-Host "Compiling: $javaFile"
+              
+              # Use your JAVAEXE variable for compilation
+              & "$(JAVAEXE)" `
+                -source 1.6 `
+                -target 1.6 `
+                -encoding Cp1256 `
+                -classpath "$dependent_jars;$dependent_classes" `
+                -d "$destination_path" `
+                "$javaFile"
+                
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Compilation failed for $javaFile"
+                exit 1
+              }
+            }
+          } else {
+            Write-Host "No compilation needed - no Java files modified"
+          }
+
+    - task: PowerShell@2
+      displayName: 'Package Application Artifact'
+      inputs:
+        targetType: 'inline'
+        script: |
+          $destination_path = "$(EDL_HOME)\target_classes"
+          $artifactPath = "$(Build.ArtifactStagingDirectory)\application"
+          
+          # Copy all compiled classes and resources
+          if (Test-Path $destination_path) {
+            Get-ChildItem -Path $destination_path -Recurse | ForEach-Object {
+              $relativePath = $_.FullName.Substring($destination_path.Length + 1)
+              $targetPath = Join-Path $artifactPath $relativePath
+              New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
+              Copy-Item $_.FullName -Destination $targetPath -Force
+            }
+          }
+          
+          # Copy other application files (config, resources, etc.)
+          Get-ChildItem -Path . -Exclude "*.java", ".git*" | ForEach-Object {
+            if ($_.PSIsContainer) {
+              Copy-Item -Path $_.FullName -Destination (Join-Path $artifactPath $_.Name) -Recurse -Force
+            } else {
+              Copy-Item -Path $_.FullName -Destination $artifactPath -Force
+            }
+          }
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish to Artifact'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'application-package'
+        publishLocation: 'Container'
