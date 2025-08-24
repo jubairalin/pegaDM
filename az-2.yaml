@@ -384,3 +384,244 @@ stages:
         PathtoPublish: '$(Build.ArtifactStagingDirectory)'
         ArtifactName: 'application-package'
         publishLocation: 'Container'
+
+        ----------------
+        # No trigger set as requested
+trigger: none
+
+variables:
+  EDL_HOME: 'F:\Pipeline\EDL_DEV'  # Using your existing path instead of Pipeline.Workspace
+  APPLICATION_NAME: 'ZAKAH'
+  MODULE: 'ZAKH_MSO'
+  JAVAEXE: 'F:\Pipeline\jdk160_05\Univ.Javac.exe'
+
+pool:
+  name: edi-pool
+  demands:
+    - agent.name -equals EDIQA
+
+stages:
+- stage: Build
+  jobs:
+  - job: BuildJava
+    steps:
+    - checkout: self
+      path: 'dev1'
+
+    - task: PowerShell@2
+      displayName: 'Get Modified Java Files'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "=== GIT MODIFIED JAVA FILES DETECTION ===" -ForegroundColor Green
+          Write-Host "Searching for modified Java files..." -ForegroundColor Yellow
+          
+          # Get the list of modified Java files since last successful build
+          $lastSuccessfulCommit = git log --oneline -n 1 --grep="Build succeeded" | Select-Object -First 1
+          
+          if ($lastSuccessfulCommit) {
+            $lastCommitHash = $lastSuccessfulCommit.Split(' ')[0]
+            Write-Host "Last successful build commit: $lastCommitHash" -ForegroundColor Cyan
+            $modifiedFiles = git diff --name-only $lastCommitHash HEAD -- '*.java'
+          } else {
+            # If no previous successful build, check all Java files
+            Write-Host "No previous successful build found. Checking all Java files." -ForegroundColor Yellow
+            $modifiedFiles = git ls-files -- '*.java'
+          }
+          
+          Write-Host "`n=== MODIFIED JAVA FILES FOUND ===" -ForegroundColor Green
+          
+          if ($modifiedFiles -and $modifiedFiles.Count -gt 0) {
+            Write-Host "Number of Java files modified: $($modifiedFiles.Count)" -ForegroundColor Green
+            
+            # Print each modified file with numbering
+            $counter = 1
+            foreach ($file in $modifiedFiles) {
+              Write-Host "$counter. $file" -ForegroundColor White
+              $counter++
+            }
+            
+            # Also show the git diff summary for context
+            Write-Host "`n=== GIT DIFF SUMMARY ===" -ForegroundColor Green
+            if ($lastSuccessfulCommit) {
+              git diff --stat $lastCommitHash HEAD -- '*.java'
+            }
+            
+            # Store the list in a FILE instead of environment variable to avoid length limits
+            $modifiedFiles | Out-File -FilePath "$(Build.BinariesDirectory)\modified_java_files.txt" -Encoding UTF8
+            echo "##vso[task.setvariable variable=MODIFIED_COUNT]$($modifiedFiles.Count)"
+            echo "##vso[task.setvariable variable=HAS_MODIFIED_FILES]true"
+            
+          } else {
+            Write-Host "No Java files need compilation" -ForegroundColor Yellow
+            echo "##vso[task.setvariable variable=MODIFIED_COUNT]0"
+            echo "##vso[task.setvariable variable=HAS_MODIFIED_FILES]false"
+          }
+
+    - task: PowerShell@2
+      displayName: 'Display File Changes in Detail'
+      inputs:
+        targetType: 'inline'
+        script: |
+          if ("$(HAS_MODIFIED_FILES)" -eq "true") {
+            Write-Host "`n=== DETAILED FILE CHANGES ===" -ForegroundColor Green
+            
+            $lastSuccessfulCommit = git log --oneline -n 1 --grep="Build succeeded" | Select-Object -First 1
+            if ($lastSuccessfulCommit) {
+              $lastCommitHash = $lastSuccessfulCommit.Split(' ')[0]
+              
+              # Read modified files from file instead of environment variable
+              $modifiedFiles = Get-Content -Path "$(Build.BinariesDirectory)\modified_java_files.txt" -Encoding UTF8
+              
+              foreach ($file in $modifiedFiles) {
+                Write-Host "`n--- Changes in: $file ---" -ForegroundColor Cyan
+                try {
+                  # Show only a summary instead of full diff to avoid excessive output
+                  git diff --stat $lastCommitHash HEAD -- "$file"
+                  Write-Host "`nFirst few lines of changes:" -ForegroundColor Gray
+                  git diff $lastCommitHash HEAD -- "$file" | Select-Object -First 10
+                  Write-Host "... (truncated for brevity)" -ForegroundColor Gray
+                } catch {
+                  Write-Host "Could not display diff for $file" -ForegroundColor Red
+                  Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+                }
+                Write-Host "----------------------------" -ForegroundColor Cyan
+              }
+            }
+          } else {
+            Write-Host "No detailed changes to display" -ForegroundColor Yellow
+          }
+
+    - task: PowerShell@2
+      displayName: 'Set up Classpath and Compile'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "`n=== COMPILATION PHASE ===" -ForegroundColor Green
+          
+          if ("$(HAS_MODIFIED_FILES)" -eq "true") {
+            # Read modified files from file instead of environment variable
+            $modifiedFiles = Get-Content -Path "$(Build.BinariesDirectory)\modified_java_files.txt" -Encoding UTF8
+            
+            # Your existing PowerShell function
+            function Get-DependentClasspaths {
+              param(
+                [string]$ApplicationName,
+                [string]$DependenciesFile = ".\dependencies.txt"
+              )
+
+              if (-not (Test-Path $DependenciesFile)) { 
+                throw "File not found: $DependenciesFile" 
+              }
+              
+              if (-not $env:EDL_HOME) { 
+                throw "EDL_HOME is not set." 
+              }
+              
+              $lines = Get-Content $DependenciesFile
+              $line = $lines | Where-Object { 
+                $_ -notmatch '^\s*$' -and $_ -match "^\s*$ApplicationName\s*=" 
+              }
+              
+              if (-not $line) { 
+                throw "Key '$ApplicationName' not found in $DependenciesFile" 
+              }
+              
+              $values = ($line.Split('=', 2)[1].Split(',')) | ForEach-Object { $_.Trim() }
+              $classpath = ($values | ForEach-Object { 
+                "$env:EDL_HOME\$_\classes" 
+              }) -join ';'
+              
+              return $classpath
+            }
+
+            # Set up environment using your variables
+            Write-Host "Setting up classpath..." -ForegroundColor Yellow
+            $dependent_classes = Get-DependentClasspaths -ApplicationName "$(APPLICATION_NAME)"
+            $dependent_jars = "F:\Pipeline\dependent-jars\oracle.xdk_11.1.1.xmlparserv2.jar;F:\Pipeline\dependent-jars\oracle.xdk_11.1.1.xmlparser;F:\Pipeline\dependent-jar\jdbc5001\classszl3.jar"
+            $destination_path = "$(EDL_HOME)\target_classes"
+            
+            Write-Host "Classpath: $dependent_classes" -ForegroundColor Cyan
+            Write-Host "JARs: $dependent_jars" -ForegroundColor Cyan
+            
+            # Create destination directory
+            New-Item -ItemType Directory -Path $destination_path -Force
+            Write-Host "Output directory: $destination_path" -ForegroundColor Cyan
+
+            Write-Host "`nStarting compilation of $(MODIFIED_COUNT) files..." -ForegroundColor Green
+            
+            $compilationCounter = 1
+            foreach ($javaFile in $modifiedFiles) {
+              Write-Host "`n[$compilationCounter/$(MODIFIED_COUNT)] Compiling: $javaFile" -ForegroundColor White
+              
+              # Use your JAVAEXE variable for compilation
+              Write-Host "Executing: $(JAVAEXE) -source 1.6 -target 1.6 -encoding Cp1256 ..." -ForegroundColor Gray
+              
+              & "$(JAVAEXE)" `
+                -source 1.6 `
+                -target 1.6 `
+                -encoding Cp1256 `
+                -classpath "$dependent_jars;$dependent_classes" `
+                -d "$destination_path" `
+                "$javaFile"
+                
+              if ($LASTEXITCODE -ne 0) {
+                Write-Error "Compilation failed for $javaFile with exit code $LASTEXITCODE"
+                exit 1
+              } else {
+                Write-Host "✓ Successfully compiled: $javaFile" -ForegroundColor Green
+              }
+              
+              $compilationCounter++
+            }
+            
+            Write-Host "`n✓ All $(MODIFIED_COUNT) files compiled successfully!" -ForegroundColor Green
+            
+          } else {
+            Write-Host "No compilation needed - no Java files modified" -ForegroundColor Yellow
+          }
+
+    - task: PowerShell@2
+      displayName: 'Package Application Artifact'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "`n=== PACKAGING ARTIFACT ===" -ForegroundColor Green
+          
+          $destination_path = "$(EDL_HOME)\target_classes"
+          $artifactPath = "$(Build.ArtifactStagingDirectory)\application"
+          
+          Write-Host "Packaging compiled classes from: $destination_path" -ForegroundColor Yellow
+          Write-Host "Destination artifact path: $artifactPath" -ForegroundColor Yellow
+          
+          # Copy all compiled classes and resources
+          if (Test-Path $destination_path) {
+            $compiledFiles = Get-ChildItem -Path $destination_path -Recurse -File
+            Write-Host "Found $($compiledFiles.Count) compiled files to package" -ForegroundColor Cyan
+            
+            Get-ChildItem -Path $destination_path -Recurse | ForEach-Object {
+              $relativePath = $_.FullName.Substring($destination_path.Length + 1)
+              $targetPath = Join-Path $artifactPath $relativePath
+              New-Item -ItemType Directory -Path (Split-Path $targetPath -Parent) -Force | Out-Null
+              Copy-Item $_.FullName -Destination $targetPath -Force
+            }
+          }
+          
+          # Copy other application files (config, resources, etc.)
+          Write-Host "Packaging non-Java application files..." -ForegroundColor Yellow
+          Get-ChildItem -Path . -Exclude "*.java", ".git*" | ForEach-Object {
+            if ($_.PSIsContainer) {
+              Copy-Item -Path $_.FullName -Destination (Join-Path $artifactPath $_.Name) -Recurse -Force
+            } else {
+              Copy-Item -Path $_.FullName -Destination $artifactPath -Force
+            }
+          }
+          
+          Write-Host "✓ Application packaged successfully!" -ForegroundColor Green
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish to Artifact'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+        ArtifactName: 'application-package'
+        publishLocation: 'Container'
