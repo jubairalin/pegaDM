@@ -126,3 +126,63 @@ Copy-Item -Path (Join-Path $SourceDir '*.class') -Destination $DestinationDir -F
 
 Write-Host "✅ Deployment completed successfully!"
 
+----------------------
+# ===========================
+# Deployment Script (Inline)
+# ===========================
+
+$ErrorActionPreference = 'Stop'
+
+# 1) Load values from environment variables (or set defaults)
+$AppName        = if ($env:AppName)        { $env:AppName }        else { 'AirShipmt' }
+$PackageName    = if ($env:PackageName)    { $env:PackageName }    else { 'AirShipmtBusiness' }
+$SourceRoot     = if ($env:SourceRoot)     { $env:SourceRoot }     else { (Join-Path $PWD '_EDI_DEV') }
+$DestinationDir = if ($env:DestinationDir) { $env:DestinationDir } else { 'F:\edi\Project1\AirShipmt\classes\AirShipmtBusiness' }
+
+Write-Host "ℹ️ Using settings:"
+Write-Host "   AppName        = $AppName"
+Write-Host "   PackageName    = $PackageName"
+Write-Host "   SourceRoot     = $SourceRoot"
+Write-Host "   DestinationDir = $DestinationDir"
+
+# 2) Handle both possible artifact root paths
+$path1 = Join-Path $SourceRoot 'EDI_TEST'
+$path2 = Join-Path (Split-Path $SourceRoot -Parent) 'EDI_TEST'   # handles case where SourceRoot itself *is* EDI_DEV
+
+if (Test-Path $path1) {
+    $artifactRoot = $path1
+}
+elseif (Test-Path $path2) {
+    $artifactRoot = $path2
+}
+else {
+    Write-Host "❌ Neither $path1 nor $path2 exists."
+    exit 1
+}
+
+Write-Host "✅ Artifact root detected: $artifactRoot"
+
+# 3) Find the latest build folder (AirShipmt_AirShipmtBusiness_*)
+$buildFolder = Get-ChildItem -Path $artifactRoot -Directory -Filter ("{0}_{1}_*" -f $AppName, $PackageName) |
+               Sort-Object LastWriteTime -Descending |
+               Select-Object -First 1
+
+if (-not $buildFolder) {
+    Write-Host "❌ No build folder found under $artifactRoot for $AppName/$PackageName"
+    exit 1
+}
+
+# 4) Build the SourceDir (must contain the PackageName folder)
+$SourceDir = Join-Path $buildFolder.FullName $PackageName
+if (-not (Test-Path $SourceDir)) {
+    Write-Host "❌ Source package folder not found: $SourceDir"
+    exit 1
+}
+
+Write-Host "✅ Source package found: $SourceDir"
+
+# 5) Perform copy
+Write-Host "📂 Copying *.class files to $DestinationDir ..."
+Copy-Item -Path (Join-Path $SourceDir '*.class') -Destination $DestinationDir -Force
+
+Write-Host "✅ Deployment completed successfully!"
