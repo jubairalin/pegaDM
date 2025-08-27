@@ -165,3 +165,62 @@ Write-Host "📂 Backing up '$DestinationDir' to '$BackupDir' ..."
 Copy-Item -Path (Join-Path $DestinationDir '*') -Destination $BackupDir -Recurse -Force
 
 Write-Host "✅ Backup completed: $BackupDir"
+-----------------
+
+param(
+  [string]$AppName,
+  [string]$PackageName,
+  [string]$SourceRoot,
+  [string]$DestinationDir
+)
+
+# Set defaults if not provided
+if (-not $AppName)        { $AppName = 'AirShipmt' }
+if (-not $PackageName)    { $PackageName = 'AirShipmtBusiness' }
+if (-not $SourceRoot)     { $SourceRoot = 'C:\vsts-agent-win-x64-2.217.2\_work\2\a\EDI_TEST' }
+if (-not $DestinationDir) { $DestinationDir = 'F:\edi\Project1\AirShipmt\classes\AirShipmtBusiness' }
+
+$ErrorActionPreference = 'Stop'
+
+# 1) Find the latest build folder
+$buildFolder = Get-ChildItem -Path $SourceRoot -Directory -Filter ("{0}_{1}_*" -f $AppName, $PackageName) |
+               Sort-Object LastWriteTime -Descending |
+               Select-Object -First 1
+
+if (-not $buildFolder) {
+    Write-Host "❌ No build folder found in $SourceRoot for $AppName/$PackageName"
+    exit 1
+}
+
+# 2) Build source path
+$SourceDir = Join-Path $buildFolder.FullName $PackageName
+if (-not (Test-Path $SourceDir)) {
+    Write-Host "❌ Source package folder not found: $SourceDir"
+    exit 1
+}
+
+# 3) Verify names
+$SourceAppName     = ($buildFolder.Name -split '_')[0]
+$SourcePackageName = Split-Path $SourceDir -Leaf
+
+$DestPackageName   = Split-Path $DestinationDir -Leaf
+$DestAppName       = Split-Path (Split-Path (Split-Path $DestinationDir -Parent) -Parent) -Leaf
+
+if ($SourceAppName -eq $AppName -and
+    $SourcePackageName -eq $PackageName -and
+    $DestAppName -eq $AppName -and
+    $DestPackageName -eq $PackageName) {
+
+    Write-Host "✅ Verified match for AppName='$AppName' and PackageName='$PackageName'"
+    Write-Host "📂 Copying *.class files from:`n $SourceDir`n to:`n $DestinationDir"
+
+    Copy-Item -Path (Join-Path $SourceDir '*.class') -Destination $DestinationDir -Force
+    Write-Host "✅ Done!"
+}
+else {
+    Write-Host "❌ AppName/PackageName mismatch! Copy aborted."
+    Write-Host " Source AppName:     $SourceAppName"
+    Write-Host " Source PackageName: $SourcePackageName"
+    Write-Host " Dest AppName:       $DestAppName"
+    Write-Host " Dest PackageName:   $DestPackageName"
+}
