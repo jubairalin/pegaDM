@@ -143,3 +143,25 @@ else {
     Write-Host " Dest PackageName:   $DestPackageName"
 }
 ----------------
+# Backup DestinationDir to a timestamped folder
+
+$DestinationDir = 'F:\edi\Project1'
+$BackupRoot     = 'F:\edi\Backups'   # Change if you want backups somewhere else
+
+# Ensure backup root exists
+if (-not (Test-Path $BackupRoot)) {
+    New-Item -ItemType Directory -Path $BackupRoot | Out-Null
+}
+
+# Generate folder name with current date/time
+$timestamp   = Get-Date -Format "yyyyMMdd_HHmmss"
+$BackupDir   = Join-Path $BackupRoot ("Project1_Backup_" + $timestamp)
+
+# Create backup folder
+New-Item -ItemType Directory -Path $BackupDir | Out-Null
+
+# Copy files
+Write-Host "📂 Backing up '$DestinationDir' to '$BackupDir' ..."
+Copy-Item -Path (Join-Path $DestinationDir '*') -Destination $BackupDir -Recurse -Force
+
+Write-Host "✅ Backup completed: $BackupDir"
