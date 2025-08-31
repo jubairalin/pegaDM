@@ -84,4 +84,12 @@ foreach ($localFile in $localFiles) {
       # Copy complete EDIConfig folder structure
       Copy-Item -Path $sourceDir\* -Destination $stagingDir -Recurse -Force
 
-----------------
+  failOnStderr: true
+
+# 7) Publish Artifact
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish EDIConfig Artifact'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)/EDIConfig'
+    ArtifactName: 'EDI_DEV'
+    publishLocation: 'Container'
