@@ -64,3 +64,24 @@ foreach ($localFile in $localFiles) {
         Copy-Item $artifactFile $localFile.FullName -Force
         Write-Host "Replaced $fileName from artifact directory"
     }
+--------------------
+# 6) Copy EDIConfig to Artifacts
+- task: PowerShell@2
+  displayName: 'Copy EDIConfig to Artifacts'
+  inputs:
+    targetType: 'inline'
+    script: |
+      # Define source and destination
+      $sourceDir = "$(Build.SourcesDirectory)/EDIConfig"
+      $stagingDir = "$(Build.ArtifactStagingDirectory)/EDIConfig"
+
+      Write-Host "Source Directory: $sourceDir"
+      Write-Host "Staging Directory: $stagingDir"
+
+      # Create staging folder if not exists
+      New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
+
+      # Copy complete EDIConfig folder structure
+      Copy-Item -Path $sourceDir\* -Destination $stagingDir -Recurse -Force
+
+----------------
