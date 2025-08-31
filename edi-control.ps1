@@ -93,3 +93,56 @@ foreach ($localFile in $localFiles) {
     PathtoPublish: '$(Build.ArtifactStagingDirectory)/EDIConfig'
     ArtifactName: 'EDI_DEV'
     publishLocation: 'Container'
+------------------
+
+# ==========================================
+# Script: Deploy EDIControl Properties
+# ==========================================
+
+# 1. Get Hostname of the running agent
+$hostname = $env:COMPUTERNAME
+Write-Host "Detected Hostname: $hostname"
+
+# 2. Define base directories
+$ediDir     = "C:\edi"
+$backupDir  = "C:\edi\backups"
+$artifactRoot = "$(Pipeline.Workspace)\drop\EDIConfig"   # base path where artifact is downloaded
+
+# Ensure backup directory exists
+if (!(Test-Path $backupDir)) {
+    New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
+}
+
+# 3. Find all ControlProperties folders for the hostname across ALL environments
+$controlDirs = Get-ChildItem -Path $artifactRoot -Directory -Recurse |
+    Where-Object { $_.FullName -like "*\$hostname\ControlProperties" }
+
+if (-not $controlDirs) {
+    Write-Host "No matching ControlProperties folder found for hostname: $hostname"
+    exit 1
+}
+
+foreach ($controlDir in $controlDirs) {
+    Write-Host "Processing directory: $($controlDir.FullName)"
+
+    # Get all *_EDIControl.properties files from artifact
+    $artifactFiles = Get-ChildItem -Path $controlDir.FullName -Filter "*_EDIControl.properties" -File
+
+    foreach ($artifactFile in $artifactFiles) {
+        $targetFile = Join-Path $ediDir $artifactFile.Name
+
+        if (Test-Path $targetFile) {
+            # 4. Backup existing file
+            $timestamp = Get-Date -Format "yyyyMMddHHmmss"
+            $backupFile = Join-Path $backupDir ("{0}_{1}.bak" -f $artifactFile.BaseName, $timestamp)
+            Copy-Item -Path $targetFile -Destination $backupFile -Force
+            Write-Host "Backed up: $targetFile -> $backupFile"
+        }
+
+        # 5. Copy artifact file to edi directory (replace existing)
+        Copy-Item -Path $artifactFile.FullName -Destination $targetFile -Force
+        Write-Host "Deployed new file: $artifactFile.Name to $ediDir"
+    }
+}
+
+Write-Host "Deployment completed successfully."
