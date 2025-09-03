@@ -47,3 +47,65 @@ cat prpcServiceUtils_export.properties
 Step 4 — Run Export
 
 sh /data/prpcsrvutils/scripts/utils/prpcServiceUtils.sh export -DprpcServiceUtils.properties=prpcServiceUtils_export.properties
+
+-------------------------
+
+
+# Fail on error
+set -e
+
+echo "Generating prpcServiceUtils_import_qa.properties from template..."
+
+cd /data/prpcsrvutils/scripts/utils
+
+# Replace placeholders in QA template with pipeline variables
+envsubst < prpcServiceUtils_import_qa.template.properties > prpcServiceUtils_import_qa.properties
+
+echo "DEBUG: Printing generated properties file"
+cat prpcServiceUtils_import_qa.properties
+
+
+
+q
+
+export JAVA_HOME=$JAVA_PATH
+export PATH=$JAVA_HOME/bin:$PATH
+
+cd /data/prpcsrvutils/scripts/utils
+
+# Ensure staging directory has the exported ZIP
+echo "Looking for ZIP in $(Build.ArtifactStagingDirectory)..."
+ls -lh $(Build.ArtifactStagingDirectory)
+
+./prpcServiceUtils.sh import \
+  --propFile /data/prpcsrvutils/scripts/utils/prpcServiceUtils_import_qa.properties \
+  --artifactsDir $(Build.ArtifactStagingDirectory) \
+  --poolSize 10 \
+  --requestTimeOut 600 \
+  --jobIdFile /data/prpcsrvutils/logs/import_jobids.txt
+---------
+JAVA_HOME=$JAVA_PATH
+export PATH=$JAVA_HOME/bin:$PATH
+
+cd /data/prpcsrvutils/scripts/utils
+
+STAGING_DIR=$(Build.ArtifactStagingDirectory)
+
+# Find the latest ZIP file in the staging directory
+LATEST_ZIP=$(ls -t "$STAGING_DIR"/*.zip 2>/dev/null | head -n 1)
+
+if [[ -z "$LATEST_ZIP" ]]; then
+  echo "No ZIP files found in $STAGING_DIR"
+  exit 1
+fi
+
+echo "Latest ZIP file found: $LATEST_ZIP"
+
+# Run the import using the latest ZIP
+./prpcServiceUtils.sh import \
+  --propFile /data/prpcsrvutils/scripts/utils/prpcServiceUtils_import_qa.properties \
+  --artifactsDir "$LATEST_ZIP" \
+  --poolSize 10 \
+  --requestTimeOut 600 \
+  --jobIdFile /data/prpcsrvutils/logs/import_jobids.txt
+
