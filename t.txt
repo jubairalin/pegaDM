@@ -34,3 +34,26 @@ export.archiveName=/data/prpcsrvutils/export/${application_name}_${project_name}
 export.exportToRepository=false
 export.async=false
 
+
+
+------------
+
+
+# Export all pipeline variables into environment variables
+export pega_rest_server_url="$(echo $pega_rest_server_url)"
+export pega_rest_username="$(echo $pega_rest_username)"
+export pega_rest_password="$(echo $pega_rest_password)"
+export application_name="$(echo $application_name)"
+export application_version="$(echo $application_version)"
+export project_name="$(echo $project_name)"
+export project_version="$(echo $project_version)"
+
+# Generate the properties file
+envsubst < prpcServiceUtils_export.template.properties > prpcServiceUtils_export.properties
+
+# Debug print
+echo "======================================================"
+echo "DEBUG: Printing generated prpcServiceUtils_export.properties"
+echo "======================================================"
+cat prpcServiceUtils_export.properties
+echo "======================================================"
