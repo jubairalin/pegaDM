@@ -1,0 +1,49 @@
+
+Step 1 — Bash Task: Generate prpcServiceUtils_export.properties
+
+
+# Navigate to working directory
+cd $(Build.SourcesDirectory)
+
+# Replace placeholders in template with pipeline variables
+envsubst < prpcServiceUtils_export.template.properties > prpcServiceUtils_export.properties
+
+# Print the generated properties file for verification
+echo "===== prpcServiceUtils_export.properties ====="
+cat prpcServiceUtils_export.properties
+
+
+Step 2 — Bash Task: Run Export
+
+cd /data/prpcsrvutils/scripts/utils
+
+./prpcServiceUtils.sh export \
+  --propFile $(Build.SourcesDirectory)/prpcServiceUtils_export.properties \
+  --artifactsDir /data/prpcsrvutils/export \
+  --poolSize 10 \
+  --requestTimeOut 600 \
+  --jobIdFile /data/prpcsrvutils/logs/export_jobids.txt
+
+
+Step 3 — Add Variable Group (Library → Variables)
+
+
+
+
+
+
+Step 3 — Transform Template to Runtime Properties
+
+In your pipeline, add a Bash task before running prpcServiceUtils.sh
+
+# Replace placeholders in the template with pipeline variables
+envsubst < prpcServiceUtils_export.template.properties > prpcServiceUtils_export.properties
+
+# Print for debug
+echo "===== Generated Properties ====="
+cat prpcServiceUtils_export.properties
+
+
+Step 4 — Run Export
+
+sh /data/prpcsrvutils/scripts/utils/prpcServiceUtils.sh export -DprpcServiceUtils.properties=prpcServiceUtils_export.properties
