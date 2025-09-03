@@ -64,3 +64,35 @@ cp "$latest_zip" "$STAGING_DIR/$artifact_name"
 
 echo "📦 Staged artifact:"
 ls -l "$STAGING_DIR"
+
+----------------
+
+j
+
+set -Eeuo pipefail
+
+# Where your export writes
+EXPORT_ROOT="/data/prpcsrvrutils/export"
+# Artifact staging dir from Azure DevOps
+STAGING_DIR="$(Build.ArtifactStagingDirectory)"
+
+# Find the latest zip (newest by timestamp)
+latest_zip=$(find "$EXPORT_ROOT" -type f -name "*.zip" -printf "%T@ %p\n" | sort -nr | head -n1 | awk '{print $2}')
+
+if [ -z "$latest_zip" ]; then
+  echo "❌ No zip file found in $EXPORT_ROOT"
+  exit 1
+fi
+
+echo "✅ Found latest zip: $latest_zip"
+
+# Get just the filename
+zip_filename=$(basename "$latest_zip")
+
+# Stage it with the same name
+mkdir -p "$STAGING_DIR"
+cp "$latest_zip" "$STAGING_DIR/$zip_filename"
+
+echo "📦 Staged artifact:"
+ls -l "$STAGING_DIR"
+
