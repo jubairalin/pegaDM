@@ -110,3 +110,23 @@ echo "Latest ZIP file found: $LATEST_ZIP"
   --jobIdFile /data/prpcsrvutils/logs/import_jobids.txt
 
 cp $(Build.SourcesDirectory)/prpcServiceUtils_import_qa.properties /data/prpcsrvutils/scripts/utils/
+
+------------------------
+
+
+cd $(System.DefaultWorkingDirectory)
+ls -ltr
+cd */   # goes into first folder (usually your repo)
+ls -ltr
+
+envsubst < prpcServiceUtils_import_qa_template.properties > prpcServiceUtils_import_qa.properties
+
+
+
+PROPS_FILE="$(System.DefaultWorkingDirectory)/ITF-Automation/prpcServiceUtils_import_qa_template.properties"
+
+envsubst < "$PROPS_FILE" > prpcServiceUtils_import_qa.properties
+
+echo "DEBUG: Printing generated properties file"
+cat prpcServiceUtils_import_qa.properties
+
