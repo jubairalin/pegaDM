@@ -1,59 +1,36 @@
-Task 1 – Bash (Generate properties file & Run export)
+export PEGA_REST_SERVER_URL="$pega_rest_server_url"
+export PEGA_REST_USERNAME="$pega_rest_username"
+export PEGA_REST_PASSWORD="$pega_rest_password"
+export APPLICATION_NAME="$application_Name"
+export APPLICATION_VERSION="$application_Version"
+export PROJECT_NAME="$project_name"
+export PROJECT_VERSION="$project_version"
 
-export JAVA_HOME=${JAVA_PATH}
-export PATH=$JAVA_HOME/bin:$PATH
+# Generate final properties file
+envsubst < prpcServiceUtils_export.template.properties > prpcServiceUtils_export.properties
 
-cd /data/prpcsrvutils/scripts/utils
-
-echo "Substituting variables into properties file..."
-envsubst < prpcServiceUtils_export.template.properties > prpcServiceUtils.properties
-
-echo "Running Pega Export..."
-./prpcServiceUtils.sh export \
-  --propFile /data/prpcsrvutils/scripts/utils/prpcServiceUtils.properties \
-  --artifactsDir /data/prpcsrvutils/export \
-  --poolSize 10 \
-  --requestTimeOut 600 \
-  --jobIdFile /data/prpcsrvutils/logs/export_jobids.txt
+# Debug print
+cat prpcServiceUtils_export.properties
 
 
-Make sure your variable group values in Azure DevOps use lowercase names:
-pega_rest_server_url, pega_rest_username, pega_rest_password, application_name, application_version, project_name, project_version.
 
-pega.rest.server.url=${pega_rest_server_url}
-pega.rest.username=${pega_rest_username}
-pega.rest.password=${pega_rest_password}
+prpcServiceUtils_export.template.properties
+# REST connection
+pega.rest.server.url=${PEGA_REST_SERVER_URL}
+pega.rest.username=${PEGA_REST_USERNAME}
+pega.rest.password=${PEGA_REST_PASSWORD}
 
-export.applicationName=${application_name}
-export.applicationVersion=${application_version}
+# Export by application or product
+export.applicationName=${APPLICATION_NAME}
+export.applicationVersion=${APPLICATION_VERSION}
 
-export.productName=${project_name}
-export.productVersion=${project_version}
+export.productName=${PROJECT_NAME}
+export.productVersion=${PROJECT_VERSION}
 
-export.archiveName=/data/prpcsrvutils/export/${application_name}_${project_name}_${project_version}.zip
+# Archive path - dynamically use projectName + projectVersion
+export.archiveName=/data/prpcsrvutils/export/${APPLICATION_NAME}_${PROJECT_NAME}_${PROJECT_VERSION}.zip
+
 export.exportToRepository=false
 export.async=false
 
 
-
-------------
-
-
-# Export all pipeline variables into environment variables
-export pega_rest_server_url="$(echo $pega_rest_server_url)"
-export pega_rest_username="$(echo $pega_rest_username)"
-export pega_rest_password="$(echo $pega_rest_password)"
-export application_name="$(echo $application_name)"
-export application_version="$(echo $application_version)"
-export project_name="$(echo $project_name)"
-export project_version="$(echo $project_version)"
-
-# Generate the properties file
-envsubst < prpcServiceUtils_export.template.properties > prpcServiceUtils_export.properties
-
-# Debug print
-echo "======================================================"
-echo "DEBUG: Printing generated prpcServiceUtils_export.properties"
-echo "======================================================"
-cat prpcServiceUtils_export.properties
-echo "======================================================"
