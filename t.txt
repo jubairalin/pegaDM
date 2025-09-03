@@ -1,0 +1,36 @@
+Task 1 – Bash (Generate properties file & Run export)
+
+export JAVA_HOME=${JAVA_PATH}
+export PATH=$JAVA_HOME/bin:$PATH
+
+cd /data/prpcsrvutils/scripts/utils
+
+echo "Substituting variables into properties file..."
+envsubst < prpcServiceUtils_export.template.properties > prpcServiceUtils.properties
+
+echo "Running Pega Export..."
+./prpcServiceUtils.sh export \
+  --propFile /data/prpcsrvutils/scripts/utils/prpcServiceUtils.properties \
+  --artifactsDir /data/prpcsrvutils/export \
+  --poolSize 10 \
+  --requestTimeOut 600 \
+  --jobIdFile /data/prpcsrvutils/logs/export_jobids.txt
+
+
+Make sure your variable group values in Azure DevOps use lowercase names:
+pega_rest_server_url, pega_rest_username, pega_rest_password, application_name, application_version, project_name, project_version.
+
+pega.rest.server.url=${pega_rest_server_url}
+pega.rest.username=${pega_rest_username}
+pega.rest.password=${pega_rest_password}
+
+export.applicationName=${application_name}
+export.applicationVersion=${application_version}
+
+export.productName=${project_name}
+export.productVersion=${project_version}
+
+export.archiveName=/data/prpcsrvutils/export/${application_name}_${project_name}_${project_version}.zip
+export.exportToRepository=false
+export.async=false
+
