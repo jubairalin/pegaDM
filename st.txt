@@ -109,3 +109,4 @@ echo "Latest ZIP file found: $LATEST_ZIP"
   --requestTimeOut 600 \
   --jobIdFile /data/prpcsrvutils/logs/import_jobids.txt
 
+cp $(Build.SourcesDirectory)/prpcServiceUtils_import_qa.properties /data/prpcsrvutils/scripts/utils/
