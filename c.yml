@@ -1,0 +1,87 @@
+trigger:
+- main   # Or your branch name
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  # Checkout current repo (default behavior in Azure Pipelines)
+  - checkout: self
+    clean: true
+
+  # Clone another Azure Repos repository in the same project/org
+  - task: Bash@3
+    displayName: 'Clone another Azure Repo'
+    inputs:
+      targetType: 'inline'
+      script: |
+        echo "Cloning repo from Azure DevOps..."
+        git clone https://$(System.AccessToken)@dev.azure.com/<ORG_NAME>/<PROJECT_NAME>/_git/<REPO_NAME> cloned-repo
+        echo "Repository cloned into ./cloned-repo"
+
+  # Example step: list repo contents
+  - script: |
+      echo "Files in cloned repo:"
+      ls -lh cloned-repo
+    displayName: 'List cloned repo contents'
+------------------
+trigger:
+- main   # or your branch
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  # Checkout current repo (default)
+  - checkout: self
+    clean: true
+
+  # PowerShell task to clone another Azure Repo
+  - task: PowerShell@2
+    displayName: 'Clone Azure Repo using PowerShell'
+    inputs:
+      targetType: 'inline'
+      script: |
+        Write-Host "Cloning repo from Azure DevOps..."
+
+        $org = "<ORG_NAME>"
+        $project = "<PROJECT_NAME>"
+        $repo = "<REPO_NAME>"
+
+        # Repo URL with OAuth token
+        $url = "https://$(System.AccessToken)@dev.azure.com/$org/$project/_git/$repo"
+
+        # Target directory
+        $targetDir = "$(Build.SourcesDirectory)\cloned-repo"
+
+        git clone $url $targetDir
+
+        Write-Host "Repository cloned into $targetDir"
+        
+  # Example: list cloned files
+  - task: PowerShell@2
+    displayName: 'List cloned repo contents'
+    inputs:
+      targetType: 'inline'
+      script: |
+        Get-ChildItem -Path "$(Build.SourcesDirectory)\cloned-repo" -Recurse
+-----------------
+trigger: none   # No automatic triggers
+
+pool:
+  vmImage: 'windows-latest'
+
+steps:
+  - task: PowerShell@2
+    displayName: 'Clone Git Repo'
+    inputs:
+      targetType: 'inline'
+      script: |
+        Write-Host "Cloning repo..."
+        
+        $repoUrl = "https://github.com/YourUserName/YourRepo.git"   # <-- Replace with your repo
+        $targetDir = "$(Build.SourcesDirectory)\cloned-repo"
+        
+        git clone $repoUrl $targetDir
+        
+        Write-Host "Repository cloned into $targetDir"
